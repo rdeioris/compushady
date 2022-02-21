@@ -54,6 +54,10 @@ class Resource:
     def copy_to(self, destination):
         self.handle.copy_to(destination.handle)
 
+    @property
+    def size(self):
+        return self.handle.size
+
 
 class Buffer(Resource):
     def __init__(self, size, heap=HEAP_DEFAULT, stride=0, format=0, device=None):
@@ -62,6 +66,9 @@ class Buffer(Resource):
 
     def upload(self, data, offset=0):
         self.handle.upload(data, offset)
+
+    def upload2d(self, data, pitch, width, height, bytes_per_pixel):
+        return self.handle.upload2d(data, pitch, width, height, bytes_per_pixel)
 
     def readback(self, buffer_or_size=0, offset=0):
         if isinstance(buffer_or_size, int):

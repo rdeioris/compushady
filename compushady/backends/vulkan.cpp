@@ -66,6 +66,9 @@ typedef struct vulkan_Compute
 	VkPipelineLayout pipeline_layout;
 	VkDescriptorSet descriptor_set;
 	VkShaderModule shader_module;
+	PyObject* py_cbv_list;
+	PyObject* py_srv_list;
+	PyObject* py_uav_list;
 } vulkan_Compute;
 
 typedef struct vulkan_Swapchain
@@ -226,6 +229,10 @@ static void vulkan_Compute_dealloc(vulkan_Compute* self)
 
 		Py_DECREF(self->py_device);
 	}
+
+	Py_XDECREF(self->py_cbv_list);
+	Py_XDECREF(self->py_srv_list);
+	Py_XDECREF(self->py_uav_list);
 
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -966,6 +973,25 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	}
 	PYVKOBJ_CLEAR(py_compute);
 
+	py_compute->py_cbv_list = PyList_New(0);
+	py_compute->py_srv_list = PyList_New(0);
+	py_compute->py_uav_list = PyList_New(0);
+
+	for (vulkan_Resource* py_resource : cbv)
+	{
+		PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
+	}
+
+	for (vulkan_Resource* py_resource : srv)
+	{
+		PyList_Append(py_compute->py_srv_list, (PyObject*)py_resource);
+	}
+
+	for (vulkan_Resource* py_resource : uav)
+	{
+		PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
+	}
+
 	py_compute->py_device = py_device;
 	Py_INCREF(py_compute->py_device);
 	py_compute->shader_module = shader_module;
@@ -1142,7 +1168,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	py_swapchain->image_extent = swapchain_create_info.imageExtent;
 
 	return (PyObject*)py_swapchain;
-}
+	}
 
 static PyMethodDef vulkan_Device_methods[] = {
 	{"create_buffer", (PyCFunction)vulkan_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
@@ -1245,6 +1271,46 @@ static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
 	{
 		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
+	}
+
+	memcpy(mapped_data + offset, view.buf, view.len);
+	vkUnmapMemory(self->py_device->device, self->memory);
+	PyBuffer_Release(&view);
+
+	Py_RETURN_NONE;
+}
+
+
+static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
+{
+	Py_buffer view;
+	uint32_t pitch;
+	uint32_t width;
+	uint32_t height;
+	uint32_t bytes_per_pixel;
+	if (!PyArg_ParseTuple(args, "y*IIII", &view, &pitch, &width, &height, &bytes_per_pixel))
+		return NULL;
+
+	char* mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	if (result != VK_SUCCESS)
+	{
+		PyBuffer_Release(&view);
+		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
+	}
+
+	size_t offset = 0;
+	size_t remains = view.len;
+	size_t resource_remains = self->size;
+	for (UINT y = 0; y < height; y++)
+	{
+		size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
+		memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
+		remains -= amount;
+		if (remains == 0)
+			break;
+		resource_remains -= amount;
+		offset += amount;
 	}
 
 	memcpy(mapped_data + offset, view.buf, view.len);
@@ -1402,8 +1468,9 @@ static PyObject* vulkan_Resource_copy_to(vulkan_Resource* self, PyObject* args)
 
 static PyMethodDef vulkan_Resource_methods[] = {
 	{"upload", (PyCFunction)vulkan_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
+	{"upload2d", (PyCFunction)vulkan_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
 	{"readback", (PyCFunction)vulkan_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
-	{"readback2d", (PyCFunction)vulkan_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width and height"},
+	{"readback2d", (PyCFunction)vulkan_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	/*{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback into a buffer from a GPU Resource"},*/
 	{"copy_to", (PyCFunction)vulkan_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{NULL, NULL, 0, NULL} /* Sentinel */

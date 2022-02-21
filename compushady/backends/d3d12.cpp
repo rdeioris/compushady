@@ -71,7 +71,7 @@ static PyMemberDef d3d12_Device_members[] = {
 };
 
 static PyMemberDef d3d12_Resource_members[] = {
-	{"size", T_ULONGLONG, offsetof(d3d12_Resource, size), 0, "device name/description"},
+	{"size", T_ULONGLONG, offsetof(d3d12_Resource, size), 0, "resource size"},
 	{"width", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Width), 0, "resource width"},
 	{"height", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Height), 0, "resource height"},
 	{"depth", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Depth), 0, "resource depth"},
@@ -764,7 +764,6 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 			uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
 			uav_desc.Format = resource->format;
 			uav_desc.Buffer.NumElements = resource->size / (uav_desc.Format ? dxgi_pixels_sizes[resource->format] : 1);
-			printf("NumElements: %d\n", uav_desc.Buffer.NumElements);
 			uav_desc.Buffer.StructureByteStride = resource->stride;
 			if (resource->stride > 0)
 			{
@@ -903,6 +902,44 @@ static PyObject* d3d12_Resource_upload(d3d12_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
+static PyObject* d3d12_Resource_upload2d(d3d12_Resource* self, PyObject* args)
+{
+	Py_buffer view;
+	UINT pitch;
+	UINT width;
+	UINT height;
+	UINT bytes_per_pixel;
+	if (!PyArg_ParseTuple(args, "y*IIII", &view, &pitch, &width, &height, &bytes_per_pixel))
+		return NULL;
+
+	char* mapped_data;
+	HRESULT hr = self->resource->Map(0, NULL, (void**)&mapped_data);
+	if (hr != S_OK)
+	{
+		PyBuffer_Release(&view);
+		return d3d12_generate_exception(hr, "Unable to Map() ID3D12Resource1");
+	}
+
+	size_t offset = 0;
+	size_t remains = view.len;
+	size_t resource_remains = self->size;
+	for (UINT y = 0; y < height; y++)
+	{
+		size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
+		memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
+		remains -= amount;
+		if (remains == 0)
+			break;
+		resource_remains -= amount;
+		offset += amount;
+	}
+
+	self->resource->Unmap(0, NULL);
+	PyBuffer_Release(&view);
+
+	Py_RETURN_NONE;
+}
+
 static PyObject* d3d12_Resource_readback(d3d12_Resource* self, PyObject* args)
 {
 	SIZE_T size;
@@ -926,6 +963,46 @@ static PyObject* d3d12_Resource_readback(d3d12_Resource* self, PyObject* args)
 	}
 
 	PyObject* py_bytes = PyBytes_FromStringAndSize(mapped_data + offset, size);
+	self->resource->Unmap(0, NULL);
+	return py_bytes;
+}
+
+static PyObject* d3d12_Resource_readback2d(d3d12_Resource* self, PyObject* args)
+{
+	UINT pitch;
+	UINT width;
+	UINT height;
+	UINT bytes_per_pixel;
+	if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
+		return NULL;
+
+	if (pitch * height > self->size)
+	{
+		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
+	}
+
+	char* mapped_data;
+	HRESULT hr = self->resource->Map(0, NULL, (void**)&mapped_data);
+	if (hr != S_OK)
+	{
+		return d3d12_generate_exception(hr, "Unable Map() ID3D12Resource1");
+	}
+
+	char* data2d = (char*)PyMem_Malloc(width * height * bytes_per_pixel);
+	if (!data2d)
+	{
+		self->resource->Unmap(0, NULL);
+		return PyErr_Format(PyExc_MemoryError, "Unable to allocate memory for 2d data");
+	}
+
+	for (uint32_t y = 0; y < height; y++)
+	{
+		memcpy(data2d + (width * bytes_per_pixel * y), mapped_data + (pitch * y), width * bytes_per_pixel);
+	}
+
+	PyObject* py_bytes = PyBytes_FromStringAndSize(data2d, width * height * bytes_per_pixel);
+
+	PyMem_Free(data2d);
 	self->resource->Unmap(0, NULL);
 	return py_bytes;
 }
@@ -1071,8 +1148,10 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 
 static PyMethodDef d3d12_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d12_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
+	{"upload2d", (PyCFunction)d3d12_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
 	{"readback", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
 	{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
+	{"readback2d", (PyCFunction)d3d12_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	{"copy_to", (PyCFunction)d3d12_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
