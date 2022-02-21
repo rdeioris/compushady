@@ -27,8 +27,31 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "s*Ui", &view, &py_entry_point, &shader_binary_type))
 		return NULL;
 
+	static DxcCreateInstanceProc dxcompiler_lib_create_instance_proc = NULL;
+
+	if (!dxcompiler_lib_create_instance_proc)
+	{
+#ifdef _WIN32
+		static HMODULE dxcompiler_lib = NULL;
+		if (!dxcompiler_lib)
+		{
+			dxcompiler_lib = LoadLibraryExA("dxcompiler.dll", NULL, LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+		}
+
+		if (dxcompiler_lib)
+		{
+			dxcompiler_lib_create_instance_proc = (DxcCreateInstanceProc)GetProcAddress(dxcompiler_lib, "DxcCreateInstance");
+		}
+	}
+#endif
+
+	if (!dxcompiler_lib_create_instance_proc)
+	{
+		return PyErr_Format(PyExc_Exception, "Unable to load dxcompiler library");
+	}
+
 	IDxcLibrary* dxc_library;
-	HRESULT hr = DxcCreateInstance(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void**)&dxc_library);
+	HRESULT hr = dxcompiler_lib_create_instance_proc(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void**)&dxc_library);
 	if (hr != S_OK)
 	{
 		return dxc_generate_exception(hr, "Unable to create DXC library instance");
@@ -36,7 +59,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 	// compile the shader
 	IDxcCompiler* dxc_compiler;
-	hr = DxcCreateInstance(CLSID_DxcCompiler, __uuidof(IDxcCompiler), (void**)&dxc_compiler);
+	hr = dxcompiler_lib_create_instance_proc(CLSID_DxcCompiler, __uuidof(IDxcCompiler), (void**)&dxc_compiler);
 	if (hr != S_OK)
 	{
 		dxc_library->Release();
@@ -75,9 +98,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	}
 
 	IDxcOperationResult* result;
-	printf("compiling...!\n");
 	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), arguments.size(), NULL, 0, NULL, &result);
-	printf("compiled!\n");
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);

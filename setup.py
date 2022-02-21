@@ -19,9 +19,6 @@ if platform.system() == 'Windows':
                               ))
 
 backends.append(Extension('compushady.backends.dxc',
-                          library_dirs=['compushady/backends'],
-                          libraries=['dxcompiler' if platform.system() ==
-                                     'Windows' else ':libdxcompiler.so.3.7'],
                           sources=['compushady/backends/dxc.cpp']
                           ))
 
