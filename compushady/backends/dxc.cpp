@@ -5,7 +5,7 @@
 #include <comdef.h>
 #endif
 
-#include "dxc/dxcapi.h"
+#include "dxcapi.h"
 
 #include "compushady.h"
 
