@@ -692,15 +692,11 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* a
 		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image View");
 	}
 
-	printf("ok0\n");
-
 	if (!vulkan_texture_set_layout(py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL))
 	{
 		Py_DECREF(py_resource);
 		return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
 	}
-
-	printf("ok1\n");
 
 	py_resource->image_extent = image_create_info.extent;
 	py_resource->descriptor_image_info.imageView = py_resource->image_view;
@@ -953,8 +949,6 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_ValueError, "Invalid SPIR-V Shader, expected a GLCompute OpEntryPoint");
 	}
-
-	printf("ready for the entry point... noop\n");
 
 	VkShaderModule shader_module;
 	VkResult result = vkCreateShaderModule(py_device->device, &shader_create_info, nullptr, &shader_module);
