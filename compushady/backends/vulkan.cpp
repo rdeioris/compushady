@@ -19,6 +19,7 @@ std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
 
 static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
+static bool vulkan_supports_swapchain = true;
 
 typedef struct vulkan_Device
 {
@@ -329,6 +330,7 @@ static PyObject* vulkan_instance_check()
 #ifdef _WIN32
 	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #endif
+	extensions.push_back("VK_EXT_scalar_block_layout");
 
 	std::vector<const char*> layers;
 
@@ -352,6 +354,7 @@ static PyObject* vulkan_instance_check()
 			if (result == VK_ERROR_EXTENSION_NOT_PRESENT && !extensions.empty())
 			{
 				extensions.clear();
+				vulkan_supports_swapchain = false;
 				continue;
 			}
 			else if (result == VK_ERROR_LAYER_NOT_PRESENT && vulkan_debug)
@@ -393,7 +396,9 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 			create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 			create_info.pQueueCreateInfos = &queue_create_info;
 			create_info.queueCreateInfoCount = 1;
-			std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+			std::vector<const char*> extensions;
+			if (vulkan_supports_swapchain)
+				extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 			create_info.enabledExtensionCount = extensions.size();
 			create_info.ppEnabledExtensionNames = extensions.data();
 
@@ -1082,6 +1087,11 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
+	if (!vulkan_supports_swapchain)
+	{
+		return PyErr_Format(PyExc_Exception, "swapchain not supported");
+	}
+
 	vulkan_Device* py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -1100,6 +1110,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 #ifdef _WIN32
 	if (!vkGetPhysicalDeviceWin32PresentationSupportKHR(self->physical_device, self->queue_family_index))
 	{
+		Py_DECREF(py_swapchain);
 		return PyErr_Format(PyExc_Exception, "vulkan presentation support for available on device");
 	}
 
@@ -1111,6 +1122,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	VkResult result = vkCreateWin32SurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
 	if (result != VK_SUCCESS)
 	{
+		Py_DECREF(py_swapchain);
 		return PyErr_Format(PyExc_Exception, "Unable to create win32 surface");
 	}
 #else
@@ -1162,7 +1174,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	py_swapchain->image_extent = swapchain_create_info.imageExtent;
 
 	return (PyObject*)py_swapchain;
-	}
+}
 
 static PyMethodDef vulkan_Device_methods[] = {
 	{"create_buffer", (PyCFunction)vulkan_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
@@ -1296,7 +1308,7 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
 	size_t offset = 0;
 	size_t remains = view.len;
 	size_t resource_remains = self->size;
-	for (UINT y = 0; y < height; y++)
+	for (uint32_t y = 0; y < height; y++)
 	{
 		size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
 		memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
@@ -1701,7 +1713,7 @@ PyInit_vulkan(void)
 	VK_FORMAT_FLOAT(R32G32B32, 3 * 4);
 	VK_FORMAT(R32G32B32_UINT, 3 * 4);
 	VK_FORMAT(R32G32B32_SINT, 3 * 4);
-	VK_FORMAT_FLOAT(R16G16B16A16, 3 * 4);
+	VK_FORMAT_FLOAT(R16G16B16A16, 4 * 2);
 	VK_FORMAT(R16G16B16A16_UNORM, 4 * 2);
 	VK_FORMAT(R16G16B16A16_UINT, 4 * 2);
 	VK_FORMAT(R16G16B16A16_SNORM, 4 * 2);

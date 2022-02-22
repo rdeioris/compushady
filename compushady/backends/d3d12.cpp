@@ -1162,8 +1162,6 @@ static PyObject* d3d12_Compute_dispatch(d3d12_Compute* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
 		return NULL;
 
-	printf("dispatch... %d %d %d\n", x, y, z);
-
 	self->command_list->Reset(self->command_allocator, self->pipeline);
 	self->command_list->SetDescriptorHeaps(1, &self->descriptor_heap);
 	self->command_list->SetComputeRootSignature(self->root_signature);

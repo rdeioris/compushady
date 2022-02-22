@@ -42,8 +42,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		{
 			dxcompiler_lib_create_instance_proc = (DxcCreateInstanceProc)GetProcAddress(dxcompiler_lib, "DxcCreateInstance");
 		}
-	}
+#else
+		dxcompiler_lib_create_instance_proc = (DxcCreateInstanceProc)dlsym(RTLD_DEFAULT, "DxcCreateInstance");
 #endif
+	}
 
 	if (!dxcompiler_lib_create_instance_proc)
 	{
