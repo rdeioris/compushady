@@ -27,17 +27,18 @@ typedef struct vulkan_Device
 	VkPhysicalDevice physical_device;
 	VkDevice device;
 	VkQueue queue;
-	uint32_t queue_family_index;
 	PyObject* name;
 	size_t dedicated_video_memory;
 	size_t dedicated_system_memory;
 	size_t shared_system_memory;
-	uint32_t vendor_id;
-	uint32_t device_id;
-	char is_hardware;
 	VkPhysicalDeviceMemoryProperties mem_props;
 	VkCommandPool command_pool;
 	VkCommandBuffer command_buffer;
+	uint32_t device_id;
+	uint32_t vendor_id;
+	uint32_t queue_family_index;
+	char is_hardware;
+	char is_discrete;
 } vulkan_Device;
 
 typedef struct vulkan_Resource
@@ -310,6 +311,7 @@ static PyMemberDef vulkan_Device_members[] = {
 	{"vendor_id", T_UINT, offsetof(vulkan_Device, vendor_id), 0, "device VendorId"},
 	{"device_id", T_UINT, offsetof(vulkan_Device, vendor_id), 0, "device DeviceId"},
 	{"is_hardware", T_BOOL, offsetof(vulkan_Device, is_hardware), 0, "returns True if this is a hardware device and not an emulated/software one"},
+	{"is_discrete", T_BOOL, offsetof(vulkan_Device, is_discrete), 0, "returns True if this is a discrete device"},
 	{NULL}  /* Sentinel */
 };
 
@@ -1235,6 +1237,7 @@ static PyObject* vulkan_get_discovered_devices(PyObject* self)
 		py_device->vendor_id = prop.vendorID;
 		py_device->device_id = prop.deviceID;
 		py_device->is_hardware = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU || prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU;
+		py_device->is_discrete = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
 		PyList_Append(py_list, (PyObject*)py_device);
 		Py_DECREF(py_device);
 	}

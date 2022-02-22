@@ -44,9 +44,7 @@ def get_best_device():
     global _current_device
     if _current_device is not None:
         return _current_device
-    for device in get_discovered_devices():
-        _current_device = device
-        break
+    _current_device = sorted(sorted(get_discovered_devices(), key=lambda x: 0 if x.is_discrete else 1), key=lambda x: x.dedicated_video_memory)[-1]
     return _current_device
 
 
