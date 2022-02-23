@@ -4,9 +4,12 @@ import compushady.formats
 import compushady
 from compushady.shaders import hlsl
 import struct
+import platform
 
 compushady.config.set_backend('vulkan')
 compushady.config.set_debug(True)
+
+print('Using device', compushady.get_best_device().name)
 
 buffer = compushady.Buffer(512 * 512 * 4, compushady.HEAP_UPLOAD)
 buffer.upload(b'\xFF\x00\x00\x00' * 512 * 512)
@@ -87,32 +90,28 @@ void main(int3 tid : SV_DispatchThreadID)
 
 compute = compushady.Compute(shader, srv=[vertices], uav=[target])
 
+glfw.init()
+# we do not want implicit OpenGL!
+glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-def main():
-    # Initialize the library
-    if not glfw.init():
-        return
-    glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
-    # Create a windowed mode window and its OpenGL context
-    window = glfw.create_window(1024, 1024, "Hello World", None, None)
-    if not window:
-        glfw.terminate()
-        return
+window = glfw.create_window(1024, 1024, "Hello World", None, None)
 
+if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
-        window), compushady.formats.R8G8B8A8_UNORM_SRGB)
+        window), compushady.formats.B8G8R8A8_UNORM, 3)
+else:
+    swapchain = compushady.Swapchain((glfw.get_x11_display(), glfw.get_x11_window(
+        window)), compushady.formats.B8G8R8A8_UNORM, 5)
 
-    x = 0
-    y = 0
-    while not glfw.window_should_close(window):
-        compute.dispatch(target.width // 8, target.height // 8, 2)
-        swapchain.present(target, x, y)
-        x += 1
-        y += 1
-        glfw.poll_events()
+x = 0
+y = 0
+while not glfw.window_should_close(window):
+    glfw.poll_events()
+    compute.dispatch(target.width // 8, target.height // 8, 2)
+    swapchain.present(target, x, y)
+    x += 1
+    y += 1
 
-    glfw.terminate()
+swapchain = None  # this ensure the swapchain is destroyed before the window
 
-
-if __name__ == "__main__":
-    main()
+glfw.terminate()

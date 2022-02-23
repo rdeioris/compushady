@@ -4,16 +4,19 @@
 #ifdef _WIN32
 #include <Windows.h>
 #include <vulkan/vulkan_win32.h>
+#else
+#include <X11/Xlib.h>
+#include <vulkan/vulkan_xlib.h>
 #endif
 
 #include <unordered_map>
 
 #include "compushady.h"
 
-#define VK_FORMAT(x, size) vulkan_formats[x] = { VK_FORMAT_##x, size }
-#define VK_FORMAT_FLOAT(x, size) vulkan_formats[x##_FLOAT] = { VK_FORMAT_##x##_SFLOAT, size }
-#define VK_FORMAT_SRGB(x, size) vulkan_formats[x##_UNORM_SRGB] = { VK_FORMAT_##x##_SRGB, size }
-#define PYVKOBJ_CLEAR(x) memset(((char*)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
+#define VK_FORMAT(x, size) vulkan_formats[x] = {VK_FORMAT_##x, size}
+#define VK_FORMAT_FLOAT(x, size) vulkan_formats[x##_FLOAT] = {VK_FORMAT_##x##_SFLOAT, size}
+#define VK_FORMAT_SRGB(x, size) vulkan_formats[x##_UNORM_SRGB] = {VK_FORMAT_##x##_SRGB, size}
+#define PYVKOBJ_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
 
 std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
 
@@ -27,7 +30,7 @@ typedef struct vulkan_Device
 	VkPhysicalDevice physical_device;
 	VkDevice device;
 	VkQueue queue;
-	PyObject* name;
+	PyObject *name;
 	size_t dedicated_video_memory;
 	size_t dedicated_system_memory;
 	size_t shared_system_memory;
@@ -44,7 +47,7 @@ typedef struct vulkan_Device
 typedef struct vulkan_Resource
 {
 	PyObject_HEAD;
-	vulkan_Device* py_device;
+	vulkan_Device *py_device;
 	VkBuffer buffer;
 	VkImage image;
 	VkImageView image_view;
@@ -61,30 +64,31 @@ typedef struct vulkan_Resource
 typedef struct vulkan_Compute
 {
 	PyObject_HEAD;
-	vulkan_Device* py_device;
+	vulkan_Device *py_device;
 	VkDescriptorPool descriptor_pool;
 	VkPipeline pipeline;
 	VkDescriptorSetLayout descriptor_set_layout;
 	VkPipelineLayout pipeline_layout;
 	VkDescriptorSet descriptor_set;
 	VkShaderModule shader_module;
-	PyObject* py_cbv_list;
-	PyObject* py_srv_list;
-	PyObject* py_uav_list;
+	PyObject *py_cbv_list;
+	PyObject *py_srv_list;
+	PyObject *py_uav_list;
 } vulkan_Compute;
 
 typedef struct vulkan_Swapchain
 {
 	PyObject_HEAD;
-	vulkan_Device* py_device;
+	vulkan_Device *py_device;
+	VkSwapchainKHR swapchain;
+	VkSemaphore copy_semaphore;
+	VkSemaphore present_semaphore;
+	VkSurfaceKHR surface;
 	std::vector<VkImage> images;
 	VkExtent2D image_extent;
-	VkSwapchainKHR swapchain;
-	VkSemaphore semaphore;
-	VkSurfaceKHR surface;
 } vulkan_Swapchain;
 
-static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t len)
+static const char *vulkan_get_spirv_entry_point(const uint32_t *words, size_t len)
 {
 	if (len < 20) // strip SPIR-V header
 		return NULL;
@@ -106,7 +110,7 @@ static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t le
 		{
 			if (size > 3)
 			{
-				const char* name = (const char*)&words[offset + 3];
+				const char *name = (const char *)&words[offset + 3];
 				size_t max_namelen = (size - 3) * 4;
 				// check for trailing 0
 				for (size_t i = 0; i < max_namelen; i++)
@@ -121,7 +125,7 @@ static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t le
 	return NULL;
 }
 
-static void vulkan_Resource_dealloc(vulkan_Resource* self)
+static void vulkan_Resource_dealloc(vulkan_Resource *self)
 {
 	if (self->py_device)
 	{
@@ -139,33 +143,33 @@ static void vulkan_Resource_dealloc(vulkan_Resource* self)
 		Py_DECREF(self->py_device);
 	}
 
-	Py_TYPE(self)->tp_free((PyObject*)self);
+	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static PyTypeObject vulkan_Resource_Type = {
 	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Resource", /* tp_name */
-	sizeof(vulkan_Resource),                                              /* tp_basicsize */
-	0,																	 /* tp_itemsize */
-	(destructor)vulkan_Resource_dealloc,                                 /* tp_dealloc */
-	0,                                                                   /* tp_print */
-	0,                                                                   /* tp_getattr */
-	0,                                                                   /* tp_setattr */
-	0,                                                                   /* tp_reserved */
-	0,                                                                   /* tp_repr */
-	0,                                                                   /* tp_as_number */
-	0,                                                                   /* tp_as_sequence */
-	0,                                                                   /* tp_as_mapping */
-	0,                                                                   /* tp_hash  */
-	0,                                                                   /* tp_call */
-	0,                                                                   /* tp_str */
-	0,                                                                   /* tp_getattro */
-	0,                                                                   /* tp_setattro */
-	0,                                                                   /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
-	"compushady vulkan Resource",                                        /* tp_doc */
+	sizeof(vulkan_Resource),											  /* tp_basicsize */
+	0,																	  /* tp_itemsize */
+	(destructor)vulkan_Resource_dealloc,								  /* tp_dealloc */
+	0,																	  /* tp_print */
+	0,																	  /* tp_getattr */
+	0,																	  /* tp_setattr */
+	0,																	  /* tp_reserved */
+	0,																	  /* tp_repr */
+	0,																	  /* tp_as_number */
+	0,																	  /* tp_as_sequence */
+	0,																	  /* tp_as_mapping */
+	0,																	  /* tp_hash  */
+	0,																	  /* tp_call */
+	0,																	  /* tp_str */
+	0,																	  /* tp_getattro */
+	0,																	  /* tp_setattro */
+	0,																	  /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,													  /* tp_flags */
+	"compushady vulkan Resource",										  /* tp_doc */
 };
 
-static void vulkan_Device_dealloc(vulkan_Device* self)
+static void vulkan_Device_dealloc(vulkan_Device *self)
 {
 	Py_XDECREF(self->name);
 
@@ -182,33 +186,33 @@ static void vulkan_Device_dealloc(vulkan_Device* self)
 		vkDestroyDevice(self->device, NULL);
 	}
 
-	Py_TYPE(self)->tp_free((PyObject*)self);
+	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static PyTypeObject vulkan_Device_Type = {
 	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Device", /* tp_name */
-	sizeof(vulkan_Device),                                             /* tp_basicsize */
-	0,                                                                 /* tp_itemsize */
-	(destructor)vulkan_Device_dealloc,                                 /* tp_dealloc */
-	0,                                                                 /* tp_print */
-	0,                                                                 /* tp_getattr */
-	0,                                                                 /* tp_setattr */
-	0,                                                                 /* tp_reserved */
-	0,                                                                 /* tp_repr */
-	0,                                                                 /* tp_as_number */
-	0,                                                                 /* tp_as_sequence */
-	0,                                                                 /* tp_as_mapping */
-	0,                                                                 /* tp_hash  */
-	0,                                                                 /* tp_call */
-	0,                                                                 /* tp_str */
-	0,                                                                 /* tp_getattro */
-	0,                                                                 /* tp_setattro */
-	0,                                                                 /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,                                                /* tp_flags */
-	"compushady vulkan Device",                                        /* tp_doc */
+	sizeof(vulkan_Device),												/* tp_basicsize */
+	0,																	/* tp_itemsize */
+	(destructor)vulkan_Device_dealloc,									/* tp_dealloc */
+	0,																	/* tp_print */
+	0,																	/* tp_getattr */
+	0,																	/* tp_setattr */
+	0,																	/* tp_reserved */
+	0,																	/* tp_repr */
+	0,																	/* tp_as_number */
+	0,																	/* tp_as_sequence */
+	0,																	/* tp_as_mapping */
+	0,																	/* tp_hash  */
+	0,																	/* tp_call */
+	0,																	/* tp_str */
+	0,																	/* tp_getattro */
+	0,																	/* tp_setattro */
+	0,																	/* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,													/* tp_flags */
+	"compushady vulkan Device",											/* tp_doc */
 };
 
-static void vulkan_Compute_dealloc(vulkan_Compute* self)
+static void vulkan_Compute_dealloc(vulkan_Compute *self)
 {
 	if (self->py_device)
 	{
@@ -236,38 +240,42 @@ static void vulkan_Compute_dealloc(vulkan_Compute* self)
 	Py_XDECREF(self->py_srv_list);
 	Py_XDECREF(self->py_uav_list);
 
-	Py_TYPE(self)->tp_free((PyObject*)self);
+	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static PyTypeObject vulkan_Compute_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Compute",  /* tp_name */
-	sizeof(vulkan_Compute),                                               /* tp_basicsize */
+	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Compute", /* tp_name */
+	sizeof(vulkan_Compute),												 /* tp_basicsize */
 	0,																	 /* tp_itemsize */
-	(destructor)vulkan_Compute_dealloc,                                   /* tp_dealloc */
-	0,                                                                   /* tp_print */
-	0,                                                                   /* tp_getattr */
-	0,                                                                   /* tp_setattr */
-	0,                                                                   /* tp_reserved */
-	0,                                                                   /* tp_repr */
-	0,                                                                   /* tp_as_number */
-	0,                                                                   /* tp_as_sequence */
-	0,                                                                   /* tp_as_mapping */
-	0,                                                                   /* tp_hash  */
-	0,                                                                   /* tp_call */
-	0,                                                                   /* tp_str */
-	0,                                                                   /* tp_getattro */
-	0,                                                                   /* tp_setattro */
-	0,                                                                   /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
-	"compushady vulkan Compute",                                         /* tp_doc */
+	(destructor)vulkan_Compute_dealloc,									 /* tp_dealloc */
+	0,																	 /* tp_print */
+	0,																	 /* tp_getattr */
+	0,																	 /* tp_setattr */
+	0,																	 /* tp_reserved */
+	0,																	 /* tp_repr */
+	0,																	 /* tp_as_number */
+	0,																	 /* tp_as_sequence */
+	0,																	 /* tp_as_mapping */
+	0,																	 /* tp_hash  */
+	0,																	 /* tp_call */
+	0,																	 /* tp_str */
+	0,																	 /* tp_getattro */
+	0,																	 /* tp_setattro */
+	0,																	 /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,													 /* tp_flags */
+	"compushady vulkan Compute",										 /* tp_doc */
 };
 
-static void vulkan_Swapchain_dealloc(vulkan_Swapchain* self)
+static void vulkan_Swapchain_dealloc(vulkan_Swapchain *self)
 {
+	self->images = {};
+
 	if (self->py_device)
 	{
-		if (self->semaphore)
-			vkDestroySemaphore(self->py_device->device, self->semaphore, NULL);
+		if (self->copy_semaphore)
+			vkDestroySemaphore(self->py_device->device, self->copy_semaphore, NULL);
+		if (self->present_semaphore)
+			vkDestroySemaphore(self->py_device->device, self->present_semaphore, NULL);
 		if (self->swapchain) // here images are destroyed too
 			vkDestroySwapchainKHR(self->py_device->device, self->swapchain, NULL);
 		if (self->surface)
@@ -275,32 +283,30 @@ static void vulkan_Swapchain_dealloc(vulkan_Swapchain* self)
 		Py_DECREF(self->py_device);
 	}
 
-	self->images = {};
-
-	Py_TYPE(self)->tp_free((PyObject*)self);
+	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
 static PyTypeObject vulkan_Swapchain_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Swapchain",  /* tp_name */
-	sizeof(vulkan_Swapchain),                                            /* tp_basicsize */
-	0,																	 /* tp_itemsize */
-	(destructor)vulkan_Swapchain_dealloc,                                /* tp_dealloc */
-	0,                                                                   /* tp_print */
-	0,                                                                   /* tp_getattr */
-	0,                                                                   /* tp_setattr */
-	0,                                                                   /* tp_reserved */
-	0,                                                                   /* tp_repr */
-	0,                                                                   /* tp_as_number */
-	0,                                                                   /* tp_as_sequence */
-	0,                                                                   /* tp_as_mapping */
-	0,                                                                   /* tp_hash  */
-	0,                                                                   /* tp_call */
-	0,                                                                   /* tp_str */
-	0,                                                                   /* tp_getattro */
-	0,                                                                   /* tp_setattro */
-	0,                                                                   /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
-	"compushady vulkan Swapchain",                                       /* tp_doc */
+	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Swapchain", /* tp_name */
+	sizeof(vulkan_Swapchain),											   /* tp_basicsize */
+	0,																	   /* tp_itemsize */
+	(destructor)vulkan_Swapchain_dealloc,								   /* tp_dealloc */
+	0,																	   /* tp_print */
+	0,																	   /* tp_getattr */
+	0,																	   /* tp_setattr */
+	0,																	   /* tp_reserved */
+	0,																	   /* tp_repr */
+	0,																	   /* tp_as_number */
+	0,																	   /* tp_as_sequence */
+	0,																	   /* tp_as_mapping */
+	0,																	   /* tp_hash  */
+	0,																	   /* tp_call */
+	0,																	   /* tp_str */
+	0,																	   /* tp_getattro */
+	0,																	   /* tp_setattro */
+	0,																	   /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,													   /* tp_flags */
+	"compushady vulkan Swapchain",										   /* tp_doc */
 };
 
 static PyMemberDef vulkan_Device_members[] = {
@@ -312,10 +318,10 @@ static PyMemberDef vulkan_Device_members[] = {
 	{"device_id", T_UINT, offsetof(vulkan_Device, vendor_id), 0, "device DeviceId"},
 	{"is_hardware", T_BOOL, offsetof(vulkan_Device, is_hardware), 0, "returns True if this is a hardware device and not an emulated/software one"},
 	{"is_discrete", T_BOOL, offsetof(vulkan_Device, is_discrete), 0, "returns True if this is a discrete device"},
-	{NULL}  /* Sentinel */
+	{NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_instance_check()
+static PyObject *vulkan_instance_check()
 {
 	if (vulkan_instance != VK_NULL_HANDLE)
 		Py_RETURN_NONE;
@@ -328,13 +334,14 @@ static PyObject* vulkan_instance_check()
 	app_info.engineVersion = 0xDEADBEEF;
 	app_info.apiVersion = VK_API_VERSION_1_2;
 
-	std::vector<const char*> extensions = { VK_KHR_SURFACE_EXTENSION_NAME };
+	std::vector<const char *> extensions = {VK_KHR_SURFACE_EXTENSION_NAME};
 #ifdef _WIN32
 	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#else
+	extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
 #endif
-	extensions.push_back("VK_EXT_scalar_block_layout");
 
-	std::vector<const char*> layers;
+	std::vector<const char *> layers;
 
 	for (;;)
 	{
@@ -371,7 +378,7 @@ static PyObject* vulkan_instance_check()
 	Py_RETURN_NONE;
 }
 
-static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
+static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
 {
 	if (self->device)
 	{
@@ -386,23 +393,27 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 
 	for (uint32_t queue_family_index = 0; queue_family_index < num_queue_families; queue_family_index++)
 	{
-		if (queue_families[queue_family_index].queueFlags & VK_QUEUE_COMPUTE_BIT)
+		if (queue_families[queue_family_index].queueFlags & VK_QUEUE_GRAPHICS_BIT)
 		{
 			VkDeviceQueueCreateInfo queue_create_info = {};
 			queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 			queue_create_info.queueCount = 1;
 			queue_create_info.queueFamilyIndex = queue_family_index;
-			float priorities[] = { 1.0f };
+			float priorities[] = {1.0f};
 			queue_create_info.pQueuePriorities = priorities;
 			VkDeviceCreateInfo create_info = {};
 			create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 			create_info.pQueueCreateInfos = &queue_create_info;
 			create_info.queueCreateInfoCount = 1;
-			std::vector<const char*> extensions;
-			if (vulkan_supports_swapchain)
-				extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+			std::vector<const char *> extensions;
+			// if (vulkan_supports_swapchain)
+			extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+			std::vector<const char *> layers;
+			layers.push_back("VK_LAYER_KHRONOS_validation");
 			create_info.enabledExtensionCount = extensions.size();
 			create_info.ppEnabledExtensionNames = extensions.data();
+			create_info.enabledLayerCount = layers.size();
+			create_info.ppEnabledLayerNames = layers.data();
 
 			VkDevice device;
 			VkResult result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
@@ -457,7 +468,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 	return NULL;
 }
 
-static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryProperties* mem_props, VkMemoryPropertyFlagBits flag)
+static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryProperties *mem_props, VkMemoryPropertyFlagBits flag)
 {
 	for (uint32_t i = 0; i < mem_props->memoryTypeCount; i++)
 	{
@@ -470,7 +481,7 @@ static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryPrope
 	return 0;
 }
 
-static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args)
+static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args)
 {
 	int heap;
 	size_t size;
@@ -487,7 +498,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 		}
 	}
 
-	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	vulkan_Device *py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
 
@@ -496,11 +507,11 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	buffer_create_info.size = size;
 	buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-		VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-		VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-		VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-		VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
-		VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
+							   VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+							   VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+							   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+							   VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT |
+							   VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
 
 	VkMemoryPropertyFlagBits mem_flag = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -519,7 +530,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 		return PyErr_Format(PyExc_ValueError, "invalid heap type: %d", heap);
 	}
 
-	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
+	vulkan_Resource *py_resource = (vulkan_Resource *)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
 	if (!py_resource)
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Buffer");
@@ -579,10 +590,10 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	py_resource->descriptor_buffer_info.buffer = py_resource->buffer;
 	py_resource->descriptor_buffer_info.range = size;
 
-	return (PyObject*)py_resource;
+	return (PyObject *)py_resource;
 }
 
-static bool vulkan_texture_set_layout(vulkan_Device* py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout)
+static bool vulkan_texture_set_layout(vulkan_Device *py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout)
 {
 
 	VkCommandBufferBeginInfo begin_info = {};
@@ -616,7 +627,7 @@ static bool vulkan_texture_set_layout(vulkan_Device* py_device, VkImage image, V
 	return result == VK_SUCCESS;
 }
 
-static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* args)
+static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *args)
 {
 	uint32_t width;
 	uint32_t height;
@@ -629,11 +640,11 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* a
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
-	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	vulkan_Device *py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
 
-	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
+	vulkan_Resource *py_resource = (vulkan_Resource *)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
 	if (!py_resource)
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture2D");
@@ -711,40 +722,40 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* a
 	py_resource->row_pitch = width * vulkan_formats[format].second;
 	py_resource->size = py_resource->row_pitch * height; // alway assume a packed configuration
 
-	return (PyObject*)py_resource;
+	return (PyObject *)py_resource;
 }
 
-static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* args, PyObject* kwds)
+static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *args, PyObject *kwds)
 {
-	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+	const char *kwlist[] = {"shader", "cbv", "srv", "uav", NULL};
 	Py_buffer view;
-	PyObject* py_cbv = NULL;
-	PyObject* py_srv = NULL;
-	PyObject* py_uav = NULL;
+	PyObject *py_cbv = NULL;
+	PyObject *py_srv = NULL;
+	PyObject *py_uav = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
-		&view, &py_cbv, &py_srv, &py_uav))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char **)kwlist,
+									 &view, &py_cbv, &py_srv, &py_uav))
 		return NULL;
 
-	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	vulkan_Device *py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
 
-	std::vector<vulkan_Resource*> cbv;
-	std::vector<vulkan_Resource*> srv;
-	std::vector<vulkan_Resource*> uav;
+	std::vector<vulkan_Resource *> cbv;
+	std::vector<vulkan_Resource *> srv;
+	std::vector<vulkan_Resource *> uav;
 
 	if (py_cbv)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_cbv);
+		PyObject *py_iter = PyObject_GetIter(py_cbv);
 		if (!py_iter)
 		{
 			PyBuffer_Release(&view);
 			return NULL;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&vulkan_Resource_Type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)&vulkan_Resource_Type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -759,7 +770,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 				PyBuffer_Release(&view);
 				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 			}
-			cbv.push_back((vulkan_Resource*)py_item);
+			cbv.push_back((vulkan_Resource *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -767,15 +778,15 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 
 	if (py_srv)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_srv);
+		PyObject *py_iter = PyObject_GetIter(py_srv);
 		if (!py_iter)
 		{
 			PyBuffer_Release(&view);
 			return NULL;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&vulkan_Resource_Type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)&vulkan_Resource_Type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -790,7 +801,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 				PyBuffer_Release(&view);
 				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 			}
-			srv.push_back((vulkan_Resource*)py_item);
+			srv.push_back((vulkan_Resource *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -798,15 +809,15 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 
 	if (py_uav)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_uav);
+		PyObject *py_iter = PyObject_GetIter(py_uav);
 		if (!py_iter)
 		{
 			PyBuffer_Release(&view);
 			return NULL;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&vulkan_Resource_Type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)&vulkan_Resource_Type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -821,7 +832,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 				PyBuffer_Release(&view);
 				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 			}
-			uav.push_back((vulkan_Resource*)py_item);
+			uav.push_back((vulkan_Resource *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -829,11 +840,11 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 
 	std::vector<VkDescriptorSetLayoutBinding> layout_bindings;
 	std::vector<VkDescriptorPoolSize> pool_sizes;
-	std::unordered_map<VkDescriptorType, std::vector<vulkan_Resource*>> descriptors;
+	std::unordered_map<VkDescriptorType, std::vector<vulkan_Resource *>> descriptors;
 	std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
 
 	uint32_t binding_offset = 0;
-	for (vulkan_Resource* py_resource : cbv)
+	for (vulkan_Resource *py_resource : cbv)
 	{
 		if (descriptors.find(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) == descriptors.end())
 		{
@@ -858,7 +869,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	}
 
 	binding_offset = 1024;
-	for (vulkan_Resource* py_resource : srv)
+	for (vulkan_Resource *py_resource : srv)
 	{
 		VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 		if (descriptors.find(type) == descriptors.end())
@@ -898,7 +909,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	}
 
 	binding_offset = 2048;
-	for (vulkan_Resource* py_resource : uav)
+	for (vulkan_Resource *py_resource : uav)
 	{
 		VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 		if (descriptors.find(type) == descriptors.end())
@@ -937,7 +948,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 		layout_bindings.push_back(layout_binding);
 	}
 
-	for (std::pair<VkDescriptorType, std::vector<vulkan_Resource*>> pair : descriptors)
+	for (std::pair<VkDescriptorType, std::vector<vulkan_Resource *>> pair : descriptors)
 	{
 		VkDescriptorPoolSize pool_size = {};
 		pool_size.descriptorCount = (uint32_t)pair.second.size();
@@ -948,9 +959,9 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	VkShaderModuleCreateInfo shader_create_info = {};
 	shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	shader_create_info.codeSize = view.len;
-	shader_create_info.pCode = (uint32_t*)(view.buf);
+	shader_create_info.pCode = (uint32_t *)(view.buf);
 
-	const char* entry_point = vulkan_get_spirv_entry_point(shader_create_info.pCode, shader_create_info.codeSize);
+	const char *entry_point = vulkan_get_spirv_entry_point(shader_create_info.pCode, shader_create_info.codeSize);
 	if (!entry_point)
 	{
 		PyBuffer_Release(&view);
@@ -967,7 +978,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 
 	PyBuffer_Release(&view);
 
-	vulkan_Compute* py_compute = (vulkan_Compute*)PyObject_New(vulkan_Compute, &vulkan_Compute_Type);
+	vulkan_Compute *py_compute = (vulkan_Compute *)PyObject_New(vulkan_Compute, &vulkan_Compute_Type);
 	if (!py_compute)
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Compute");
@@ -978,19 +989,19 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	py_compute->py_srv_list = PyList_New(0);
 	py_compute->py_uav_list = PyList_New(0);
 
-	for (vulkan_Resource* py_resource : cbv)
+	for (vulkan_Resource *py_resource : cbv)
 	{
-		PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
+		PyList_Append(py_compute->py_cbv_list, (PyObject *)py_resource);
 	}
 
-	for (vulkan_Resource* py_resource : srv)
+	for (vulkan_Resource *py_resource : srv)
 	{
-		PyList_Append(py_compute->py_srv_list, (PyObject*)py_resource);
+		PyList_Append(py_compute->py_srv_list, (PyObject *)py_resource);
 	}
 
-	for (vulkan_Resource* py_resource : uav)
+	for (vulkan_Resource *py_resource : uav)
 	{
-		PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
+		PyList_Append(py_compute->py_uav_list, (PyObject *)py_resource);
 	}
 
 	py_compute->py_device = py_device;
@@ -1036,7 +1047,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	}
 
 	// update descriptors
-	for (VkWriteDescriptorSet& write_descriptor_set : write_descriptor_sets)
+	for (VkWriteDescriptorSet &write_descriptor_set : write_descriptor_sets)
 	{
 		write_descriptor_set.dstSet = py_compute->descriptor_set;
 	}
@@ -1073,15 +1084,15 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 		return PyErr_Format(PyExc_Exception, "Unable to create Compute Pipeline");
 	}
 
-	return (PyObject*)py_compute;
+	return (PyObject *)py_compute;
 }
 
-static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* args)
+static PyObject *vulkan_Device_create_swapchain(vulkan_Device *self, PyObject *args)
 {
-	void* window;
+	PyObject *py_window_handle;
 	int format;
 	uint32_t num_buffers;
-	if (!PyArg_ParseTuple(args, "KiI", &window, &format, &num_buffers))
+	if (!PyArg_ParseTuple(args, "OiI", &py_window_handle, &format, &num_buffers))
 		return NULL;
 
 	if (vulkan_formats.find(format) == vulkan_formats.end())
@@ -1094,11 +1105,11 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 		return PyErr_Format(PyExc_Exception, "swapchain not supported");
 	}
 
-	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	vulkan_Device *py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
 
-	vulkan_Swapchain* py_swapchain = (vulkan_Swapchain*)PyObject_New(vulkan_Swapchain, &vulkan_Swapchain_Type);
+	vulkan_Swapchain *py_swapchain = (vulkan_Swapchain *)PyObject_New(vulkan_Swapchain, &vulkan_Swapchain_Type);
 	if (!py_swapchain)
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Swapchain");
@@ -1110,16 +1121,18 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	py_swapchain->images = {};
 
 #ifdef _WIN32
-	if (!vkGetPhysicalDeviceWin32PresentationSupportKHR(self->physical_device, self->queue_family_index))
+	if (!PyLong_Check(py_window_handle))
 	{
 		Py_DECREF(py_swapchain);
-		return PyErr_Format(PyExc_Exception, "vulkan presentation support for available on device");
+		return PyErr_Format(PyExc_ValueError, "window handle must be an integer");
 	}
+
+	HWND window = (HWND)PyLong_AsUnsignedLongLong(py_window_handle);
 
 	VkWin32SurfaceCreateInfoKHR surface_create_info = {};
 	surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
 	surface_create_info.hinstance = GetModuleHandle(NULL);
-	surface_create_info.hwnd = (HWND)window;
+	surface_create_info.hwnd = window;
 
 	VkResult result = vkCreateWin32SurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
 	if (result != VK_SUCCESS)
@@ -1128,8 +1141,41 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 		return PyErr_Format(PyExc_Exception, "Unable to create win32 surface");
 	}
 #else
-	VkResult result;
+	if (!PyTuple_Check(py_window_handle))
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_ValueError, "window handle must be a tuple");
+	}
+
+	unsigned long long display;
+	unsigned long long window;
+
+	if (!PyArg_ParseTuple(py_window_handle, "KK", &display, &window))
+	{
+		Py_DECREF(py_swapchain);
+		return NULL;
+	}
+
+	VkXlibSurfaceCreateInfoKHR surface_create_info = {};
+	surface_create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+	surface_create_info.dpy = (Display *)display;
+	surface_create_info.window = (Window)window;
+
+	VkResult result = vkCreateXlibSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_Exception, "Unable to create xlib surface");
+	}
 #endif
+
+	VkBool32 supported;
+	result = vkGetPhysicalDeviceSurfaceSupportKHR(self->physical_device, self->queue_family_index, py_swapchain->surface, &supported);
+	if (result != VK_SUCCESS || !supported)
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_Exception, "swapchain not supported for this queue family");
+	}
 
 	VkSurfaceCapabilitiesKHR surface_capabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(self->physical_device, py_swapchain->surface, &surface_capabilities);
@@ -1145,7 +1191,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	swapchain_create_info.preTransform = surface_capabilities.currentTransform;
 	swapchain_create_info.clipped = VK_TRUE;
 	swapchain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR; //VK_PRESENT_MODE_MAILBOX_KHR;
+	swapchain_create_info.presentMode = VK_PRESENT_MODE_FIFO_KHR; // VK_PRESENT_MODE_MAILBOX_KHR;
 	swapchain_create_info.surface = py_swapchain->surface;
 
 	result = vkCreateSwapchainKHR(py_device->device, &swapchain_create_info, NULL, &py_swapchain->swapchain);
@@ -1171,11 +1217,23 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 
 	VkSemaphoreCreateInfo semaphore_create_info = {};
 	semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	vkCreateSemaphore(py_device->device, &semaphore_create_info, NULL, &py_swapchain->semaphore);
+	result = vkCreateSemaphore(py_device->device, &semaphore_create_info, NULL, &py_swapchain->copy_semaphore);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_Exception, "Unable to create vulkan Semaphore");
+	}
+
+	result = vkCreateSemaphore(py_device->device, &semaphore_create_info, NULL, &py_swapchain->present_semaphore);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_Exception, "Unable to create vulkan Semaphore");
+	}
 
 	py_swapchain->image_extent = swapchain_create_info.imageExtent;
 
-	return (PyObject*)py_swapchain;
+	return (PyObject *)py_swapchain;
 }
 
 static PyMethodDef vulkan_Device_methods[] = {
@@ -1184,7 +1242,6 @@ static PyMethodDef vulkan_Device_methods[] = {
 	/*
 	{"create_buffer_from_native", (PyCFunction)d3d12_Device_create_buffer_from_native, METH_VARARGS, "Creates a Buffer object from a low level pointer"},
 	{"create_texture1d", (PyCFunction)d3d12_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
-	{"create_texture2d", (PyCFunction)d3d12_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
 	{"create_texture2d_from_native", (PyCFunction)d3d12_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
 	{"create_texture3d", (PyCFunction)d3d12_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},*/
@@ -1193,12 +1250,12 @@ static PyMethodDef vulkan_Device_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_get_discovered_devices(PyObject* self)
+static PyObject *vulkan_get_discovered_devices(PyObject *self)
 {
 	if (!vulkan_instance_check())
 		return NULL;
 
-	PyObject* py_list = PyList_New(0);
+	PyObject *py_list = PyList_New(0);
 
 	uint32_t num_devices;
 	vkEnumeratePhysicalDevices(vulkan_instance, &num_devices, nullptr);
@@ -1211,7 +1268,7 @@ static PyObject* vulkan_get_discovered_devices(PyObject* self)
 		VkPhysicalDeviceProperties prop;
 		vkGetPhysicalDeviceProperties(device, &prop);
 
-		vulkan_Device* py_device = (vulkan_Device*)PyObject_New(vulkan_Device, &vulkan_Device_Type);
+		vulkan_Device *py_device = (vulkan_Device *)PyObject_New(vulkan_Device, &vulkan_Device_Type);
 		if (!py_device)
 		{
 			Py_DECREF(py_list);
@@ -1238,7 +1295,7 @@ static PyObject* vulkan_get_discovered_devices(PyObject* self)
 		py_device->device_id = prop.deviceID;
 		py_device->is_hardware = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU || prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU;
 		py_device->is_discrete = prop.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-		PyList_Append(py_list, (PyObject*)py_device);
+		PyList_Append(py_list, (PyObject *)py_device);
 		Py_DECREF(py_device);
 	}
 
@@ -1251,16 +1308,16 @@ static PyMemberDef vulkan_Resource_members[] = {
 	{"height", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, height), 0, "resource height"},
 	{"depth", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, depth), 0, "resource depth"},
 	{"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
-	{NULL}  /* Sentinel */
+	{NULL} /* Sentinel */
 };
 
 static PyMemberDef vulkan_Swapchain_members[] = {
 	{"width", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, width), 0, "swapchain width"},
 	{"height", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, height), 0, "swapchain height"},
-	{NULL}  /* Sentinel */
+	{NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
+static PyObject *vulkan_Resource_upload(vulkan_Resource *self, PyObject *args)
 {
 	Py_buffer view;
 	size_t offset = 0;
@@ -1274,8 +1331,8 @@ static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
 		return PyErr_Format(PyExc_ValueError, "supplied buffer is bigger than resource size: (offset %llu) %llu (expected no more than %llu)", offset, size, self->size);
 	}
 
-	char* mapped_data;
-	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	char *mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void **)&mapped_data);
 	if (result != VK_SUCCESS)
 	{
 		PyBuffer_Release(&view);
@@ -1289,8 +1346,7 @@ static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-
-static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
+static PyObject *vulkan_Resource_upload2d(vulkan_Resource *self, PyObject *args)
 {
 	Py_buffer view;
 	uint32_t pitch;
@@ -1300,8 +1356,8 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "y*IIII", &view, &pitch, &width, &height, &bytes_per_pixel))
 		return NULL;
 
-	char* mapped_data;
-	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	char *mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void **)&mapped_data);
 	if (result != VK_SUCCESS)
 	{
 		PyBuffer_Release(&view);
@@ -1314,7 +1370,7 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
 	for (uint32_t y = 0; y < height; y++)
 	{
 		size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
-		memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
+		memcpy(mapped_data + (pitch * y), (char *)view.buf + offset, amount);
 		remains -= amount;
 		if (remains == 0)
 			break;
@@ -1329,7 +1385,7 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-static PyObject* vulkan_Resource_readback(vulkan_Resource* self, PyObject* args)
+static PyObject *vulkan_Resource_readback(vulkan_Resource *self, PyObject *args)
 {
 	size_t size;
 	size_t offset;
@@ -1344,19 +1400,19 @@ static PyObject* vulkan_Resource_readback(vulkan_Resource* self, PyObject* args)
 		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: (offset %llu) %llu (expected no more than %llu)", offset, size, self->size);
 	}
 
-	char* mapped_data;
-	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	char *mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void **)&mapped_data);
 	if (result != VK_SUCCESS)
 	{
 		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
 	}
 
-	PyObject* py_bytes = PyBytes_FromStringAndSize(mapped_data + offset, size);
+	PyObject *py_bytes = PyBytes_FromStringAndSize(mapped_data + offset, size);
 	vkUnmapMemory(self->py_device->device, self->memory);
 	return py_bytes;
 }
 
-static PyObject* vulkan_Resource_readback2d(vulkan_Resource* self, PyObject* args)
+static PyObject *vulkan_Resource_readback2d(vulkan_Resource *self, PyObject *args)
 {
 	uint32_t pitch;
 	uint32_t width;
@@ -1370,14 +1426,14 @@ static PyObject* vulkan_Resource_readback2d(vulkan_Resource* self, PyObject* arg
 		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
 	}
 
-	char* mapped_data;
-	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	char *mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void **)&mapped_data);
 	if (result != VK_SUCCESS)
 	{
 		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
 	}
 
-	char* data2d = (char*)PyMem_Malloc(width * height * bytes_per_pixel);
+	char *data2d = (char *)PyMem_Malloc(width * height * bytes_per_pixel);
 	if (!data2d)
 	{
 		vkUnmapMemory(self->py_device->device, self->memory);
@@ -1389,20 +1445,20 @@ static PyObject* vulkan_Resource_readback2d(vulkan_Resource* self, PyObject* arg
 		memcpy(data2d + (width * bytes_per_pixel * y), mapped_data + (pitch * y), width * bytes_per_pixel);
 	}
 
-	PyObject* py_bytes = PyBytes_FromStringAndSize(data2d, width * height * bytes_per_pixel);
+	PyObject *py_bytes = PyBytes_FromStringAndSize(data2d, width * height * bytes_per_pixel);
 
 	PyMem_Free(data2d);
 	vkUnmapMemory(self->py_device->device, self->memory);
 	return py_bytes;
 }
 
-static PyObject* vulkan_Resource_copy_to(vulkan_Resource* self, PyObject* args)
+static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
 {
-	PyObject* py_destination;
+	PyObject *py_destination;
 	if (!PyArg_ParseTuple(args, "O", &py_destination))
 		return NULL;
 
-	int ret = PyObject_IsInstance(py_destination, (PyObject*)&vulkan_Resource_Type);
+	int ret = PyObject_IsInstance(py_destination, (PyObject *)&vulkan_Resource_Type);
 	if (ret < 0)
 	{
 		return NULL;
@@ -1412,8 +1468,8 @@ static PyObject* vulkan_Resource_copy_to(vulkan_Resource* self, PyObject* args)
 		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 	}
 
-	vulkan_Resource* dst_resource = (vulkan_Resource*)py_destination;
-	size_t dst_size = ((vulkan_Resource*)py_destination)->size;
+	vulkan_Resource *dst_resource = (vulkan_Resource *)py_destination;
+	size_t dst_size = ((vulkan_Resource *)py_destination)->size;
 
 	if (self->size > dst_size)
 	{
@@ -1485,16 +1541,16 @@ static PyMethodDef vulkan_Resource_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Swapchain_present(vulkan_Swapchain* self, PyObject* args)
+static PyObject *vulkan_Swapchain_present(vulkan_Swapchain *self, PyObject *args)
 {
-	PyObject* py_resource;
+	PyObject *py_resource;
 	uint32_t x;
 	uint32_t y;
 	if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
 		return NULL;
 
 	uint32_t index = 0;
-	VkResult result = vkAcquireNextImageKHR(self->py_device->device, self->swapchain, UINT64_MAX, self->semaphore, VK_NULL_HANDLE, &index);
+	VkResult result = vkAcquireNextImageKHR(self->py_device->device, self->swapchain, UINT64_MAX, self->copy_semaphore, VK_NULL_HANDLE, &index);
 	if (result != VK_SUCCESS)
 	{
 		return PyErr_Format(PyExc_Exception, "unable to acquire next image from Swapchain");
@@ -1520,51 +1576,54 @@ static PyObject* vulkan_Swapchain_present(vulkan_Swapchain* self, PyObject* args
 	image_copy.srcSubresource.layerCount = 1;
 	image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	image_copy.dstSubresource.layerCount = 1;
-	image_copy.extent.width = Py_MIN(((vulkan_Resource*)py_resource)->image_extent.width, self->image_extent.width - x);
-	image_copy.extent.height = Py_MIN(((vulkan_Resource*)py_resource)->image_extent.height, self->image_extent.height - y);
+	image_copy.extent.width = Py_MIN(((vulkan_Resource *)py_resource)->image_extent.width, self->image_extent.width - x);
+	image_copy.extent.height = Py_MIN(((vulkan_Resource *)py_resource)->image_extent.height, self->image_extent.height - y);
 	image_copy.extent.depth = 1;
 	image_copy.dstOffset.x = Py_MIN(x, self->image_extent.width - 1);
 	image_copy.dstOffset.y = Py_MIN(y, self->image_extent.height - 1);
 
-
 	vkBeginCommandBuffer(self->py_device->command_buffer, &begin_info);
 	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
-	vkCmdCopyImage(self->py_device->command_buffer, ((vulkan_Resource*)py_resource)->image, VK_IMAGE_LAYOUT_GENERAL, self->images[index], VK_IMAGE_LAYOUT_GENERAL, 1, &image_copy);
+	vkCmdCopyImage(self->py_device->command_buffer, ((vulkan_Resource *)py_resource)->image, VK_IMAGE_LAYOUT_GENERAL, self->images[index], VK_IMAGE_LAYOUT_GENERAL, 1, &image_copy);
 	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
 	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
 	vkEndCommandBuffer(self->py_device->command_buffer);
-
 
 	VkPipelineStageFlags flags = VK_PIPELINE_STAGE_TRANSFER_BIT;
 	VkSubmitInfo submit_info = {};
 	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submit_info.pCommandBuffers = &self->py_device->command_buffer;
 	submit_info.commandBufferCount = 1;
-	submit_info.pWaitSemaphores = &self->semaphore;
+	submit_info.pWaitSemaphores = &self->copy_semaphore;
 	submit_info.waitSemaphoreCount = 1;
 	submit_info.pWaitDstStageMask = &flags;
+	submit_info.signalSemaphoreCount = 1;
+	submit_info.pSignalSemaphores = &self->present_semaphore;
 
 	result = vkQueueSubmit(self->py_device->queue, 1, &submit_info, VK_NULL_HANDLE);
 
-	if (result == VK_SUCCESS)
+	if (result != VK_SUCCESS)
 	{
-		vkQueueWaitIdle(self->py_device->queue);
+		return PyErr_Format(PyExc_Exception, "unable to copy image to Swapchain: %d", result);
 	}
 
 	VkPresentInfoKHR present_info = {};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-	present_info.pSwapchains = &self->swapchain;
+	present_info.pSwapchains = &(self->swapchain);
 	present_info.swapchainCount = 1;
 	present_info.pImageIndices = &index;
+	present_info.waitSemaphoreCount = 1;
+	present_info.pWaitSemaphores = &(self->present_semaphore);
 	result = vkQueuePresentKHR(self->py_device->queue, &present_info);
 
 	if (result == VK_SUCCESS)
 	{
 		vkQueueWaitIdle(self->py_device->queue);
+		Py_RETURN_NONE;
 	}
 
-	Py_RETURN_NONE;
+	return PyErr_Format(PyExc_Exception, "unable to present Swapchain: %d", result);
 }
 
 static PyMethodDef vulkan_Swapchain_methods[] = {
@@ -1572,7 +1631,7 @@ static PyMethodDef vulkan_Swapchain_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Compute_dispatch(vulkan_Compute* self, PyObject* args)
+static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
 {
 	uint32_t x, y, z;
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
@@ -1607,13 +1666,13 @@ static PyMethodDef vulkan_Compute_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_enable_debug(PyObject* self)
+static PyObject *vulkan_enable_debug(PyObject *self)
 {
 	vulkan_debug = true;
 	Py_RETURN_NONE;
 }
 
-static PyObject* vulkan_get_shader_binary_type(PyObject* self)
+static PyObject *vulkan_get_shader_binary_type(PyObject *self)
 {
 	return PyLong_FromLong(COMPUSHADY_SHADER_BINARY_TYPE_SPIRV);
 }
@@ -1630,12 +1689,12 @@ static struct PyModuleDef compushady_backends_vulkan_module = {
 	"vulkan",
 	NULL,
 	-1,
-	compushady_backends_vulkan_methods };
+	compushady_backends_vulkan_methods};
 
 PyMODINIT_FUNC
 PyInit_vulkan(void)
 {
-	PyObject* m = PyModule_Create(&compushady_backends_vulkan_module);
+	PyObject *m = PyModule_Create(&compushady_backends_vulkan_module);
 	if (m == NULL)
 		return NULL;
 
@@ -1647,7 +1706,7 @@ PyInit_vulkan(void)
 		return NULL;
 	}
 	Py_INCREF(&vulkan_Device_Type);
-	if (PyModule_AddObject(m, "Device", (PyObject*)&vulkan_Device_Type) < 0)
+	if (PyModule_AddObject(m, "Device", (PyObject *)&vulkan_Device_Type) < 0)
 	{
 		Py_DECREF(&vulkan_Device_Type);
 		Py_DECREF(m);
@@ -1663,7 +1722,7 @@ PyInit_vulkan(void)
 		return NULL;
 	}
 	Py_INCREF(&vulkan_Resource_Type);
-	if (PyModule_AddObject(m, "Resource", (PyObject*)&vulkan_Resource_Type) < 0)
+	if (PyModule_AddObject(m, "Resource", (PyObject *)&vulkan_Resource_Type) < 0)
 	{
 		Py_DECREF(&vulkan_Resource_Type);
 		Py_DECREF(&vulkan_Device_Type);
@@ -1681,7 +1740,7 @@ PyInit_vulkan(void)
 		return NULL;
 	}
 	Py_INCREF(&vulkan_Swapchain_Type);
-	if (PyModule_AddObject(m, "Swapchain", (PyObject*)&vulkan_Swapchain_Type) < 0)
+	if (PyModule_AddObject(m, "Swapchain", (PyObject *)&vulkan_Swapchain_Type) < 0)
 	{
 		Py_DECREF(&vulkan_Swapchain_Type);
 		Py_DECREF(&vulkan_Resource_Type);
@@ -1700,7 +1759,7 @@ PyInit_vulkan(void)
 		return NULL;
 	}
 	Py_INCREF(&vulkan_Compute_Type);
-	if (PyModule_AddObject(m, "Compute", (PyObject*)&vulkan_Compute_Type) < 0)
+	if (PyModule_AddObject(m, "Compute", (PyObject *)&vulkan_Compute_Type) < 0)
 	{
 		Py_DECREF(&vulkan_Compute_Type);
 		Py_DECREF(&vulkan_Swapchain_Type);

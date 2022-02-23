@@ -40,12 +40,16 @@ def set_current_device(index):
     _current_device = get_discovered_devices()[index]
 
 
-def get_best_device():
+def get_current_device():
     global _current_device
-    if _current_device is not None:
-        return _current_device
-    _current_device = sorted(sorted(get_discovered_devices(), key=lambda x: 0 if x.is_discrete else 1), key=lambda x: x.dedicated_video_memory)[-1]
+    if _current_device is None:
+        _current_device = get_best_device()
     return _current_device
+
+
+def get_best_device():
+    return sorted(get_discovered_devices(), key=lambda x: (
+        x.is_hardware, x.is_discrete, x.dedicated_video_memory))[-1]
 
 
 class Resource:
@@ -59,7 +63,7 @@ class Resource:
 
 class Buffer(Resource):
     def __init__(self, size, heap=HEAP_DEFAULT, stride=0, format=0, device=None):
-        self.device = device if device else get_best_device()
+        self.device = device if device else get_current_device()
         self.handle = self.device.create_buffer(heap, size, stride, format)
 
     def upload(self, data, offset=0):
@@ -80,13 +84,13 @@ class Buffer(Resource):
 class Texture1D(Resource):
 
     def __init__(self, width, format, device=None):
-        self.device = device if device else get_best_device()
+        self.device = device if device else get_current_device()
         self.handle = self.device.create_texture1d(width, format)
 
     @classmethod
     def from_native(cls, ptr, device=None):
         instance = cls.__new__(cls)
-        instance.device = device if device else get_best_device()
+        instance.device = device if device else get_current_device()
         instance.handle = instance.device.create_texture1d_from_native(ptr)
         return instance
 
@@ -102,13 +106,13 @@ class Texture1D(Resource):
 class Texture2D(Resource):
 
     def __init__(self, width, height, format, device=None):
-        self.device = device if device else get_best_device()
+        self.device = device if device else get_current_device()
         self.handle = self.device.create_texture2d(width, height, format)
 
     @classmethod
     def from_native(cls, ptr, device=None):
         instance = cls.__new__(cls)
-        instance.device = device if device else get_best_device()
+        instance.device = device if device else get_current_device()
         instance.handle = instance.device.create_texture2d_from_native(ptr)
         return instance
 
@@ -128,7 +132,7 @@ class Texture2D(Resource):
 class Swapchain:
 
     def __init__(self, window_handle, format, num_buffers=2, device=None):
-        self.device = device if device else get_best_device()
+        self.device = device if device else get_current_device()
         self.handle = self.device.create_swapchain(
             window_handle, format, num_buffers)
 
@@ -147,7 +151,7 @@ class Swapchain:
 class Compute:
 
     def __init__(self, shader, cbv=[], srv=[], uav=[], device=None):
-        self.device = device if device else get_best_device()
+        self.device = device if device else get_current_device()
         self.handle = self.device.create_compute(
             shader,
             cbv=[resource.handle for resource in cbv],
