@@ -725,6 +725,202 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
 	return (PyObject *)py_resource;
 }
 
+static PyObject* vulkan_Device_create_texture3d(vulkan_Device* self, PyObject* args)
+{
+	uint32_t width;
+	uint32_t height;
+	uint32_t depth;
+	VkFormat format;
+	if (!PyArg_ParseTuple(args, "IIIL", &width, &height, &depth, &format))
+		return NULL;
+
+	if (vulkan_formats.find(format) == vulkan_formats.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
+	if (!py_resource)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture3D");
+	}
+	PYVKOBJ_CLEAR(py_resource);
+	py_resource->py_device = py_device;
+	Py_INCREF(py_resource->py_device);
+
+	VkImageCreateInfo image_create_info = {};
+	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_create_info.extent.width = width;
+	image_create_info.extent.height = height;
+	image_create_info.extent.depth = depth;
+	image_create_info.imageType = VK_IMAGE_TYPE_3D;
+	image_create_info.mipLevels = 1;
+	image_create_info.arrayLayers = 1;
+	image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+	image_create_info.format = vulkan_formats[format].first;
+	VkResult result = vkCreateImage(py_device->device, &image_create_info, NULL, &py_resource->image);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image");
+	}
+
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(py_device->device, py_resource->image, &requirements);
+
+	VkMemoryAllocateInfo allocate_info = {};
+	allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocate_info.allocationSize = requirements.size;
+	allocate_info.memoryTypeIndex = vulkan_get_memory_type_index_by_flag(&self->mem_props, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	result = vkAllocateMemory(py_device->device, &allocate_info, NULL, &py_resource->memory);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image memory");
+	}
+
+	result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, 0);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+	}
+
+	VkImageViewCreateInfo image_view_create_info = {};
+	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	image_view_create_info.image = py_resource->image;
+	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
+	image_view_create_info.format = image_create_info.format;
+	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_create_info.subresourceRange.levelCount = 1;
+	image_view_create_info.subresourceRange.layerCount = 1;
+
+	result = vkCreateImageView(py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image View");
+	}
+
+	if (!vulkan_texture_set_layout(py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL))
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
+	}
+
+	py_resource->image_extent = image_create_info.extent;
+	py_resource->descriptor_image_info.imageView = py_resource->image_view;
+	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	py_resource->row_pitch = width * vulkan_formats[format].second;
+	py_resource->size = py_resource->row_pitch * height * depth; // alway assume a packed configuration
+
+	return (PyObject*)py_resource;
+}
+
+static PyObject* vulkan_Device_create_texture1d(vulkan_Device* self, PyObject* args)
+{
+	uint32_t width;
+	VkFormat format;
+	if (!PyArg_ParseTuple(args, "IL", &width, &format))
+		return NULL;
+
+	if (vulkan_formats.find(format) == vulkan_formats.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
+	if (!py_resource)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture1D");
+	}
+	PYVKOBJ_CLEAR(py_resource);
+	py_resource->py_device = py_device;
+	Py_INCREF(py_resource->py_device);
+
+	VkImageCreateInfo image_create_info = {};
+	image_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	image_create_info.extent.width = width;
+	image_create_info.extent.height = 1;
+	image_create_info.extent.depth = 1;
+	image_create_info.imageType = VK_IMAGE_TYPE_1D;
+	image_create_info.mipLevels = 1;
+	image_create_info.arrayLayers = 1;
+	image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
+	image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+	image_create_info.format = vulkan_formats[format].first;
+	VkResult result = vkCreateImage(py_device->device, &image_create_info, NULL, &py_resource->image);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image");
+	}
+
+	VkMemoryRequirements requirements;
+	vkGetImageMemoryRequirements(py_device->device, py_resource->image, &requirements);
+
+	VkMemoryAllocateInfo allocate_info = {};
+	allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+	allocate_info.allocationSize = requirements.size;
+	allocate_info.memoryTypeIndex = vulkan_get_memory_type_index_by_flag(&self->mem_props, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+	result = vkAllocateMemory(py_device->device, &allocate_info, NULL, &py_resource->memory);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image memory");
+	}
+
+	result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, 0);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+	}
+
+	VkImageViewCreateInfo image_view_create_info = {};
+	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	image_view_create_info.image = py_resource->image;
+	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_1D;
+	image_view_create_info.format = image_create_info.format;
+	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_create_info.subresourceRange.levelCount = 1;
+	image_view_create_info.subresourceRange.layerCount = 1;
+
+	result = vkCreateImageView(py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image View");
+	}
+
+	if (!vulkan_texture_set_layout(py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL))
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
+	}
+
+	py_resource->image_extent = image_create_info.extent;
+	py_resource->descriptor_image_info.imageView = py_resource->image_view;
+	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	py_resource->row_pitch = width * vulkan_formats[format].second;
+	py_resource->size = py_resource->row_pitch; // alway assume a packed configuration
+
+	return (PyObject*)py_resource;
+}
+
 static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *args, PyObject *kwds)
 {
 	const char *kwlist[] = {"shader", "cbv", "srv", "uav", NULL};
@@ -1238,12 +1434,12 @@ static PyObject *vulkan_Device_create_swapchain(vulkan_Device *self, PyObject *a
 
 static PyMethodDef vulkan_Device_methods[] = {
 	{"create_buffer", (PyCFunction)vulkan_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
+	{"create_texture1d", (PyCFunction)vulkan_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
 	{"create_texture2d", (PyCFunction)vulkan_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
+	{"create_texture3d", (PyCFunction)vulkan_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	/*
 	{"create_buffer_from_native", (PyCFunction)d3d12_Device_create_buffer_from_native, METH_VARARGS, "Creates a Buffer object from a low level pointer"},
-	{"create_texture1d", (PyCFunction)d3d12_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
 	{"create_texture2d_from_native", (PyCFunction)d3d12_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
-	{"create_texture3d", (PyCFunction)d3d12_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},*/
 	{"create_compute", (PyCFunction)vulkan_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
 	{"create_swapchain", (PyCFunction)vulkan_Device_create_swapchain, METH_VARARGS | METH_KEYWORDS, "Creates a Swapchain object"},

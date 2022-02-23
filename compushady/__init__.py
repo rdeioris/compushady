@@ -128,6 +128,35 @@ class Texture2D(Resource):
     def row_pitch(self):
         return self.handle.row_pitch
 
+class Texture3D(Resource):
+
+    def __init__(self, width, height, depth, format, device=None):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_texture3d(width, height, depth, format)
+
+    @classmethod
+    def from_native(cls, ptr, device=None):
+        instance = cls.__new__(cls)
+        instance.device = device if device else get_current_device()
+        instance.handle = instance.device.create_texture3d_from_native(ptr)
+        return instance
+
+    @property
+    def width(self):
+        return self.handle.width
+
+    @property
+    def height(self):
+        return self.handle.height
+
+    @property
+    def depth(self):
+        return self.handle.depth
+
+    @property
+    def row_pitch(self):
+        return self.handle.row_pitch
+
 
 class Swapchain:
 
