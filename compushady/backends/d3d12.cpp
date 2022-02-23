@@ -24,6 +24,7 @@ typedef struct d3d12_Device
 	UINT vendor_id;
 	UINT device_id;
 	char is_hardware;
+	char is_discrete;
 } d3d12_Device;
 
 typedef struct d3d12_Resource
@@ -67,6 +68,7 @@ static PyMemberDef d3d12_Device_members[] = {
 	{"vendor_id", T_UINT, offsetof(d3d12_Device, vendor_id), 0, "device VendorId"},
 	{"device_id", T_UINT, offsetof(d3d12_Device, vendor_id), 0, "device DeviceId"},
 	{"is_hardware", T_BOOL, offsetof(d3d12_Device, is_hardware), 0, "returns True if this is a hardware device and not an emulated/software one"},
+	{"is_discrete", T_BOOL, offsetof(d3d12_Device, is_discrete), 0, "returns True if this is a discrete device"},
 	{NULL}  /* Sentinel */
 };
 
@@ -1223,6 +1225,7 @@ static PyObject* d3d12_get_discovered_devices(PyObject* self)
 		py_device->vendor_id = adapter_desc.VendorId;
 		py_device->device_id = adapter_desc.DeviceId;
 		py_device->is_hardware = (adapter_desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0;
+		py_device->is_discrete = py_device->is_hardware;
 
 		PyList_Append(py_list, (PyObject*)py_device);
 		Py_DECREF(py_device);

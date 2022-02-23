@@ -108,10 +108,8 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 	if (hr != S_OK)
 	{
-		printf("error!\n");
 		if (result)
 		{
-			printf("error result!\n");
 			IDxcBlobEncoding* blob_error;
 			if (result->GetErrorBuffer(&blob_error) == S_OK)
 			{
