@@ -16,7 +16,6 @@
 #define VK_FORMAT(x, size) vulkan_formats[x] = {VK_FORMAT_##x, size}
 #define VK_FORMAT_FLOAT(x, size) vulkan_formats[x##_FLOAT] = {VK_FORMAT_##x##_SFLOAT, size}
 #define VK_FORMAT_SRGB(x, size) vulkan_formats[x##_UNORM_SRGB] = {VK_FORMAT_##x##_SRGB, size}
-#define PYVKOBJ_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
 
 std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
 
@@ -559,7 +558,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Buffer");
 	}
-	PYVKOBJ_CLEAR(py_resource);
+	COMPUSHADY_CLEAR(py_resource);
 	py_resource->py_device = py_device;
 	Py_INCREF(py_resource->py_device);
 
@@ -673,7 +672,7 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* a
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture2D");
 	}
-	PYVKOBJ_CLEAR(py_resource);
+	COMPUSHADY_CLEAR(py_resource);
 	py_resource->py_device = py_device;
 	Py_INCREF(py_resource->py_device);
 
@@ -762,7 +761,7 @@ static PyObject* vulkan_Device_create_texture3d(vulkan_Device* self, PyObject* a
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture3D");
 	}
-	PYVKOBJ_CLEAR(py_resource);
+	COMPUSHADY_CLEAR(py_resource);
 	py_resource->py_device = py_device;
 	Py_INCREF(py_resource->py_device);
 
@@ -849,7 +848,7 @@ static PyObject* vulkan_Device_create_texture1d(vulkan_Device* self, PyObject* a
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture1D");
 	}
-	PYVKOBJ_CLEAR(py_resource);
+	COMPUSHADY_CLEAR(py_resource);
 	py_resource->py_device = py_device;
 	Py_INCREF(py_resource->py_device);
 
@@ -1085,7 +1084,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Compute");
 	}
-	PYVKOBJ_CLEAR(py_compute);
+	COMPUSHADY_CLEAR(py_compute);
 
 	py_compute->py_cbv_list = PyList_New(0);
 	py_compute->py_srv_list = PyList_New(0);
@@ -1216,7 +1215,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	{
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Swapchain");
 	}
-	PYVKOBJ_CLEAR(py_swapchain);
+	COMPUSHADY_CLEAR(py_swapchain);
 
 	py_swapchain->py_device = py_device;
 	Py_INCREF(py_swapchain->py_device);
@@ -1376,7 +1375,7 @@ static PyObject* vulkan_get_discovered_devices(PyObject* self)
 			Py_DECREF(py_list);
 			return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Device");
 		}
-		PYVKOBJ_CLEAR(py_device);
+		COMPUSHADY_CLEAR(py_device);
 
 		py_device->physical_device = device;
 		py_device->name = PyUnicode_FromString(prop.deviceName);

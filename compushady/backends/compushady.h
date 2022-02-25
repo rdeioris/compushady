@@ -2,6 +2,8 @@
 #include "structmember.h"
 #include <vector>
 
+#define COMPUSHADY_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
+
 #define COMPUSHADY_ALIGN(x, alignment) ((x + alignment -1) / alignment) * alignment
 
 #define COMPUSHADY_HEAP_DEFAULT 0
