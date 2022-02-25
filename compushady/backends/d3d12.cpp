@@ -1,5 +1,4 @@
-#include <Python.h>
-#include "structmember.h"
+
 #include <d3d12.h>
 #include <dxgi1_3.h>
 #include <comdef.h>
@@ -38,6 +37,12 @@ typedef struct d3d12_Resource
 	UINT stride;
 	DXGI_FORMAT format;
 } d3d12_Resource;
+
+typedef struct d3d12_Swapchain
+{
+	PyObject_HEAD;
+	ID3D12Device1* device;
+} d3d12_Swapchain;
 
 typedef struct d3d12_Compute
 {
@@ -175,6 +180,34 @@ static PyTypeObject d3d12_Resource_Type = {
 	"compushady d3d12 Resource",                                         /* tp_doc */
 };
 
+static void d3d12_Swapchain_dealloc(d3d12_Compute* self)
+{
+	Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject d3d12_Swapchain_Type = {
+	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Swapchain", /* tp_name */
+	sizeof(d3d12_Device),                                              /* tp_basicsize */
+	0,                                                                 /* tp_itemsize */
+	(destructor)d3d12_Swapchain_dealloc,                                  /* tp_dealloc */
+	0,                                                                 /* tp_print */
+	0,                                                                 /* tp_getattr */
+	0,                                                                 /* tp_setattr */
+	0,                                                                 /* tp_reserved */
+	0,                                                                 /* tp_repr */
+	0,                                                                 /* tp_as_number */
+	0,                                                                 /* tp_as_sequence */
+	0,                                                                 /* tp_as_mapping */
+	0,                                                                 /* tp_hash  */
+	0,                                                                 /* tp_call */
+	0,                                                                 /* tp_str */
+	0,                                                                 /* tp_getattro */
+	0,                                                                 /* tp_setattro */
+	0,                                                                 /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,                                                /* tp_flags */
+	"compushady d3d12 Swapchain",                                         /* tp_doc */
+};
+
 static void d3d12_Compute_dealloc(d3d12_Compute* self)
 {
 	if (self->command_list)
@@ -308,7 +341,7 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 {
 	UINT width;
 	DXGI_FORMAT format;
-	if (!PyArg_ParseTuple(args, "IL", &width, &format))
+	if (!PyArg_ParseTuple(args, "Ii", &width, &format))
 		return NULL;
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
@@ -334,7 +367,10 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 	resource_desc.Format = format;
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
-	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	if (heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT)
+	{
+		resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+	}
 
 	ID3D12Resource1* resource;
 	HRESULT hr = device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
@@ -560,83 +596,10 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	std::vector<d3d12_Resource*> cbv;
 	std::vector<d3d12_Resource*> srv;
 	std::vector<d3d12_Resource*> uav;
-
-	if (py_cbv)
+	if (!compushady_check_descriptors(&d3d12_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
 	{
-		PyObject* py_iter = PyObject_GetIter(py_cbv);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d12_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			cbv.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
-
-	if (py_srv)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_srv);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d12_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			srv.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
-
-	if (py_uav)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_uav);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d12_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			uav.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
+		PyBuffer_Release(&view);
+		return NULL;
 	}
 
 	std::vector<D3D12_DESCRIPTOR_RANGE1> ranges;
@@ -1266,59 +1229,13 @@ static struct PyModuleDef compushady_backends_d3d12_module = {
 PyMODINIT_FUNC
 PyInit_d3d12(void)
 {
-	PyObject* m = PyModule_Create(&compushady_backends_d3d12_module);
-	if (m == NULL)
-		return NULL;
-
-	d3d12_Device_Type.tp_members = d3d12_Device_members;
-	d3d12_Device_Type.tp_methods = d3d12_Device_methods;
-	if (PyType_Ready(&d3d12_Device_Type) < 0)
-	{
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d12_Device_Type);
-	if (PyModule_AddObject(m, "Device", (PyObject*)&d3d12_Device_Type) < 0)
-	{
-		Py_DECREF(&d3d12_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	d3d12_Resource_Type.tp_members = d3d12_Resource_members;
-	d3d12_Resource_Type.tp_methods = d3d12_Resource_methods;
-	if (PyType_Ready(&d3d12_Resource_Type) < 0)
-	{
-		Py_DECREF(&d3d12_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d12_Resource_Type);
-	if (PyModule_AddObject(m, "Resource", (PyObject*)&d3d12_Resource_Type) < 0)
-	{
-		Py_DECREF(&d3d12_Resource_Type);
-		Py_DECREF(&d3d12_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	d3d12_Compute_Type.tp_methods = d3d12_Compute_methods;
-	if (PyType_Ready(&d3d12_Compute_Type) < 0)
-	{
-		Py_DECREF(&d3d12_Resource_Type);
-		Py_DECREF(&d3d12_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d12_Compute_Type);
-	if (PyModule_AddObject(m, "Compute", (PyObject*)&d3d12_Compute_Type) < 0)
-	{
-		Py_DECREF(&d3d12_Compute_Type);
-		Py_DECREF(&d3d12_Resource_Type);
-		Py_DECREF(&d3d12_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
+	PyObject* m = compushady_backend_init(
+		&compushady_backends_d3d12_module,
+		&d3d12_Device_Type, d3d12_Device_members, d3d12_Device_methods,
+		&d3d12_Resource_Type, d3d12_Resource_members, d3d12_Resource_methods,
+		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, /*d3d12_Swapchain_methods*/ NULL,
+		&d3d12_Compute_Type, NULL, d3d12_Compute_methods
+	);
 
 	DXGI_PIXEL_SIZE(R32G32B32A32_FLOAT, 16);
 	DXGI_PIXEL_SIZE(R32G32B32A32_UINT, 16);

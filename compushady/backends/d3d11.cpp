@@ -246,7 +246,7 @@ static PyObject* d3d11_Device_create_texture2d(d3d11_Device* self, PyObject* arg
 	UINT height;
 	DXGI_FORMAT format;
 	PyObject* py_uav = NULL;
-	if (!PyArg_ParseTuple(args, "IILO", &width, &height, &format, &py_uav))
+	if (!PyArg_ParseTuple(args, "IIiO", &width, &height, &format, &py_uav))
 		return NULL;
 
 	ID3D11Device* device = d3d11_Device_get_device(self);

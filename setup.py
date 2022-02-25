@@ -4,22 +4,26 @@ import platform
 backends = [Extension('compushady.backends.vulkan',
                       libraries=['vulkan-1' if platform.system() ==
                                  'Windows' else 'vulkan'],
-                      sources=['compushady/backends/vulkan.cpp']
+                      sources=['compushady/backends/vulkan.cpp',
+                               'compushady/backends/common.cpp']
                       )]
 
 
 if platform.system() == 'Windows':
     backends.append(Extension('compushady.backends.d3d12',
                               libraries=['dxgi', 'd3d12'],
-                              sources=['compushady/backends/d3d12.cpp']
+                              sources=['compushady/backends/d3d12.cpp',
+                                       'compushady/backends/common.cpp']
                               ))
     backends.append(Extension('compushady.backends.d3d11',
                               libraries=['dxgi', 'd3d11'],
-                              sources=['compushady/backends/d3d11.cpp']
+                              sources=['compushady/backends/d3d11.cpp',
+                                       'compushady/backends/common.cpp']
                               ))
 
 backends.append(Extension('compushady.backends.dxc',
-                          sources=['compushady/backends/dxc.cpp']
+                          sources=['compushady/backends/dxc.cpp',
+                                   'compushady/backends/common.cpp']
                           ))
 
 additional_files = []

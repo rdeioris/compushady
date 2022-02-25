@@ -1,3 +1,7 @@
+#include <Python.h>
+#include "structmember.h"
+#include <vector>
+
 #define COMPUSHADY_ALIGN(x, alignment) ((x + alignment -1) / alignment) * alignment
 
 #define COMPUSHADY_HEAP_DEFAULT 0
@@ -49,3 +53,104 @@
 #define R8_SINT 64
 #define B8G8R8A8_UNORM 87
 #define B8G8R8A8_UNORM_SRGB 91
+
+
+PyObject* compushady_backend_init(PyModuleDef* py_module_def,
+	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
+	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
+	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
+	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods
+);
+
+template<typename T>
+bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav)
+{
+	if (py_cbv)
+	{
+		PyObject* py_iter = PyObject_GetIter(py_cbv);
+		if (!py_iter)
+		{
+			return false;
+		}
+		while (PyObject* py_item = PyIter_Next(py_iter))
+		{
+			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			if (ret < 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				return false;
+			}
+			else if (ret == 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+				return false;
+			}
+			cbv.push_back((T*)py_item);
+			Py_DECREF(py_item);
+		}
+		Py_DECREF(py_iter);
+	}
+
+	if (py_srv)
+	{
+		PyObject* py_iter = PyObject_GetIter(py_srv);
+		if (!py_iter)
+		{
+			return false;
+		}
+		while (PyObject* py_item = PyIter_Next(py_iter))
+		{
+			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			if (ret < 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				return false;
+			}
+			else if (ret == 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+				return false;
+			}
+			srv.push_back((T*)py_item);
+			Py_DECREF(py_item);
+		}
+		Py_DECREF(py_iter);
+	}
+
+	if (py_uav)
+	{
+		PyObject* py_iter = PyObject_GetIter(py_uav);
+		if (!py_iter)
+		{
+			return false;
+		}
+		while (PyObject* py_item = PyIter_Next(py_iter))
+		{
+			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			if (ret < 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				return false;
+			}
+			else if (ret == 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+				return false;
+			}
+			uav.push_back((T*)py_item);
+			Py_DECREF(py_item);
+		}
+		Py_DECREF(py_iter);
+	}
+
+	return true;
+}
