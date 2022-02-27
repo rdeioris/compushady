@@ -10,6 +10,7 @@
 #endif
 
 #include <unordered_map>
+#include <string>
 
 #include "compushady.h"
 
@@ -18,6 +19,7 @@
 #define VK_FORMAT_SRGB(x, size) vulkan_formats[x##_UNORM_SRGB] = {VK_FORMAT_##x##_SRGB, size}
 
 std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
+std::vector<std::string> vulkan_debug_messages;
 
 static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
@@ -142,7 +144,20 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
 	VkResult result = vkCreateImage(device, &image_create_info, NULL, &image);
 	if (result != VK_SUCCESS)
 	{
-		PyErr_Format(PyExc_Exception, "unable to create vulkan Image");
+		PyObject* exception = PyExc_Exception;
+		switch (image_type)
+		{
+		case(VK_IMAGE_TYPE_1D):
+			exception = Compushady_Texture1DError;
+			break;
+		case(VK_IMAGE_TYPE_2D):
+			exception = Compushady_Texture2DError;
+			break;
+		case(VK_IMAGE_TYPE_3D):
+			exception = Compushady_Texture3DError;
+			break;
+		}
+		PyErr_Format(exception, "Unable to create vulkan Image");
 		return VK_NULL_HANDLE;
 	}
 	return image;
@@ -344,10 +359,72 @@ static PyMemberDef vulkan_Device_members[] = {
 	{NULL} /* Sentinel */
 };
 
+static VkBool32 vulkan_debug_message_callback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+	VkDebugUtilsMessageTypeFlagsEXT messageType,
+	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+	void* pUserData)
+{
+	vulkan_debug_messages.push_back(pCallbackData->pMessage);
+	return VK_FALSE;
+}
+
 static PyObject* vulkan_instance_check()
 {
 	if (vulkan_instance != VK_NULL_HANDLE)
 		Py_RETURN_NONE;
+
+	std::vector<const char*> extensions;
+	std::vector<const char*> layers;
+
+	uint32_t layers_count;
+	vkEnumerateInstanceLayerProperties(&layers_count, NULL);
+	std::vector<VkLayerProperties> available_layers(layers_count);
+	vkEnumerateInstanceLayerProperties(&layers_count, available_layers.data());
+	if (vulkan_debug)
+	{
+		vulkan_debug = false;
+		for (VkLayerProperties& layer_prop : available_layers)
+		{
+			if (!strcmp(layer_prop.layerName, "VK_LAYER_KHRONOS_validation"))
+			{
+				layers.push_back("VK_LAYER_KHRONOS_validation");
+				vulkan_debug = true;
+				break;
+			}
+		}
+	}
+
+	uint32_t extensions_count;
+	vkEnumerateInstanceExtensionProperties(NULL, &extensions_count, NULL);
+	std::vector<VkExtensionProperties> available_extensions(extensions_count);
+	vkEnumerateInstanceExtensionProperties(nullptr, &extensions_count, available_extensions.data());
+
+	for (VkExtensionProperties& extension_prop : available_extensions)
+	{
+		if (!strcmp(extension_prop.extensionName, VK_KHR_SURFACE_EXTENSION_NAME))
+		{
+			extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+			continue;
+		}
+
+#ifdef _WIN32
+		if (!strcmp(extension_prop.extensionName, VK_KHR_WIN32_SURFACE_EXTENSION_NAME))
+		{
+			extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+#else
+		if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
+		{
+			extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+#endif
+			continue;
+		}
+
+		if (vulkan_debug && !strcmp(extension_prop.extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+		{
+			extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+			continue;
+		}
+	}
 
 	VkApplicationInfo app_info = {};
 	app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
@@ -357,26 +434,14 @@ static PyObject* vulkan_instance_check()
 	app_info.engineVersion = 0xDEADBEEF;
 	app_info.apiVersion = VK_API_VERSION_1_2;
 
-	std::vector<const char*> extensions = { VK_KHR_SURFACE_EXTENSION_NAME };
-#ifdef _WIN32
-	extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-#else
-	extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
-#endif
-
-	std::vector<const char*> layers;
-
 	for (;;)
 	{
 		VkInstanceCreateInfo instance_create_info = {};
 		instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		instance_create_info.pApplicationInfo = &app_info;
+
 		instance_create_info.enabledExtensionCount = (uint32_t)extensions.size();
 		instance_create_info.ppEnabledExtensionNames = extensions.data();
-		if (vulkan_debug)
-		{
-			layers.push_back("VK_LAYER_KHRONOS_validation");
-		}
 		instance_create_info.enabledLayerCount = (uint32_t)layers.size();
 		instance_create_info.ppEnabledLayerNames = layers.data();
 
@@ -389,19 +454,35 @@ static PyObject* vulkan_instance_check()
 				vulkan_supports_swapchain = false;
 				continue;
 			}
-			else if (result == VK_ERROR_LAYER_NOT_PRESENT && vulkan_debug)
+			else if (result == VK_ERROR_LAYER_NOT_PRESENT && !layers.empty())
 			{
+				layers.clear();
 				vulkan_debug = false;
 				continue;
 			}
 			return PyErr_Format(PyExc_Exception, "unable to create vulkan instance: %d", result);
+		}
+
+		vulkan_debug_messages = {};
+
+		if (vulkan_debug)
+		{
+			VkDebugUtilsMessengerEXT messenger;
+			VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = {};
+			debug_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+			debug_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+			debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+			debug_messenger_create_info.pfnUserCallback = vulkan_debug_message_callback;
+			PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vulkan_instance, "vkCreateDebugUtilsMessengerEXT");
+			if (func)
+				func(vulkan_instance, &debug_messenger_create_info, NULL, &messenger); // no need to check for error, in the worst case we will get messages on stdout
 		}
 		break;
 	}
 	Py_RETURN_NONE;
 }
 
-static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
+static vulkan_Device* vulkan_Device_get_device(vulkan_Device * self)
 {
 	if (self->device)
 	{
@@ -442,7 +523,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 			VkResult result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
 			if (result != VK_SUCCESS)
 			{
-				PyErr_Format(PyExc_Exception, "unable to create vulkan device");
+				PyErr_Format(PyExc_Exception, "Unable to create vulkan device");
 				return NULL;
 			}
 
@@ -459,7 +540,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 			if (result != VK_SUCCESS)
 			{
 				vkDestroyDevice(device, NULL);
-				PyErr_Format(PyExc_Exception, "unable to create vulkan Command Pool");
+				PyErr_Format(PyExc_Exception, "Unable to create vulkan Command Pool");
 				return NULL;
 			}
 
@@ -474,7 +555,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 			{
 				vkDestroyCommandPool(device, command_pool, NULL);
 				vkDestroyDevice(device, NULL);
-				PyErr_Format(PyExc_Exception, "unable to create vulkan Command Buffer");
+				PyErr_Format(PyExc_Exception, "Unable to create vulkan Command Buffer");
 				return NULL;
 			}
 
@@ -491,7 +572,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device* self)
 	return NULL;
 }
 
-static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryProperties* mem_props, VkMemoryPropertyFlagBits flag)
+static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryProperties * mem_props, VkMemoryPropertyFlagBits flag)
 {
 	for (uint32_t i = 0; i < mem_props->memoryTypeCount; i++)
 	{
@@ -504,7 +585,7 @@ static uint32_t vulkan_get_memory_type_index_by_flag(VkPhysicalDeviceMemoryPrope
 	return 0;
 }
 
-static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args)
+static PyObject* vulkan_Device_create_buffer(vulkan_Device * self, PyObject * args)
 {
 	int heap;
 	size_t size;
@@ -517,7 +598,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	{
 		if (vulkan_formats.find(format) == vulkan_formats.end())
 		{
-			return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+			return PyErr_Format(Compushady_BufferError, "invalid pixel format");
 		}
 	}
 
@@ -550,7 +631,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 		mem_flag = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
 		break;
 	default:
-		return PyErr_Format(PyExc_ValueError, "invalid heap type: %d", heap);
+		return PyErr_Format(Compushady_BufferError, "Invalid heap type: %d", heap);
 	}
 
 	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
@@ -566,7 +647,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	if (result != VK_SUCCESS)
 	{
 		Py_DECREF(py_resource);
-		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Buffer");
+		return PyErr_Format(Compushady_BufferError, "unable to create vulkan Buffer");
 	}
 
 	VkMemoryRequirements requirements;
@@ -581,14 +662,14 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	if (result != VK_SUCCESS)
 	{
 		Py_DECREF(py_resource);
-		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Buffer memory");
+		return PyErr_Format(Compushady_BufferError, "unable to create vulkan Buffer memory");
 	}
 
 	result = vkBindBufferMemory(py_device->device, py_resource->buffer, py_resource->memory, 0);
 	if (result != VK_SUCCESS)
 	{
 		Py_DECREF(py_resource);
-		return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Buffer memory");
+		return PyErr_Format(Compushady_BufferError, "unable to bind vulkan Buffer memory");
 	}
 
 	if (format > 0)
@@ -604,7 +685,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 		if (result != VK_SUCCESS)
 		{
 			Py_DECREF(py_resource);
-			return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Buffer View");
+			return PyErr_Format(Compushady_BufferError, "unable to create vulkan Buffer View");
 		}
 	}
 
@@ -616,7 +697,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device* self, PyObject* args
 	return (PyObject*)py_resource;
 }
 
-static bool vulkan_texture_set_layout(vulkan_Device* py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout)
+static bool vulkan_texture_set_layout(vulkan_Device * py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout)
 {
 
 	VkCommandBufferBeginInfo begin_info = {};
@@ -650,7 +731,7 @@ static bool vulkan_texture_set_layout(vulkan_Device* py_device, VkImage image, V
 	return result == VK_SUCCESS;
 }
 
-static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* args)
+static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject * args)
 {
 	uint32_t width;
 	uint32_t height;
@@ -738,7 +819,7 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device* self, PyObject* a
 	return (PyObject*)py_resource;
 }
 
-static PyObject* vulkan_Device_create_texture3d(vulkan_Device* self, PyObject* args)
+static PyObject* vulkan_Device_create_texture3d(vulkan_Device * self, PyObject * args)
 {
 	uint32_t width;
 	uint32_t height;
@@ -827,7 +908,7 @@ static PyObject* vulkan_Device_create_texture3d(vulkan_Device* self, PyObject* a
 	return (PyObject*)py_resource;
 }
 
-static PyObject* vulkan_Device_create_texture1d(vulkan_Device* self, PyObject* args)
+static PyObject* vulkan_Device_create_texture1d(vulkan_Device * self, PyObject * args)
 {
 	uint32_t width;
 	VkFormat format;
@@ -914,7 +995,7 @@ static PyObject* vulkan_Device_create_texture1d(vulkan_Device* self, PyObject* a
 	return (PyObject*)py_resource;
 }
 
-static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* args, PyObject* kwds)
+static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * args, PyObject * kwds)
 {
 	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
 	Py_buffer view;
@@ -1188,7 +1269,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device* self, PyObject* arg
 	return (PyObject*)py_compute;
 }
 
-static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* args)
+static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject * args)
 {
 	PyObject* py_window_handle;
 	int format;
@@ -1337,6 +1418,19 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device* self, PyObject* a
 	return (PyObject*)py_swapchain;
 }
 
+static PyObject* vulkan_Device_get_debug_messages(vulkan_Device * self, PyObject * args)
+{
+	PyObject* py_list = PyList_New(0);
+
+	for (const std::string& message : vulkan_debug_messages)
+	{
+		PyList_Append(py_list, PyUnicode_FromString(message.c_str()));
+	}
+	vulkan_debug_messages = {};
+
+	return py_list;
+}
+
 static PyMethodDef vulkan_Device_methods[] = {
 	{"create_buffer", (PyCFunction)vulkan_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
 	{"create_texture1d", (PyCFunction)vulkan_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
@@ -1344,14 +1438,14 @@ static PyMethodDef vulkan_Device_methods[] = {
 	{"create_texture3d", (PyCFunction)vulkan_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	/*
 	{"create_buffer_from_native", (PyCFunction)d3d12_Device_create_buffer_from_native, METH_VARARGS, "Creates a Buffer object from a low level pointer"},
-	{"create_texture2d_from_native", (PyCFunction)d3d12_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
-	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},*/
+	{"create_texture2d_from_native", (PyCFunction)d3d12_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},*/
+	{"get_debug_messages", (PyCFunction)vulkan_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)vulkan_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
 	{"create_swapchain", (PyCFunction)vulkan_Device_create_swapchain, METH_VARARGS | METH_KEYWORDS, "Creates a Swapchain object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_get_discovered_devices(PyObject* self)
+static PyObject* vulkan_get_discovered_devices(PyObject * self)
 {
 	if (!vulkan_instance_check())
 		return NULL;
@@ -1401,7 +1495,7 @@ static PyObject* vulkan_get_discovered_devices(PyObject* self)
 	}
 
 	return py_list;
-	}
+}
 
 static PyMemberDef vulkan_Resource_members[] = {
 	{"size", T_ULONGLONG, offsetof(vulkan_Resource, size), 0, "resource size"},
@@ -1418,7 +1512,7 @@ static PyMemberDef vulkan_Swapchain_members[] = {
 	{NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_upload(vulkan_Resource * self, PyObject * args)
 {
 	Py_buffer view;
 	size_t offset = 0;
@@ -1447,7 +1541,7 @@ static PyObject* vulkan_Resource_upload(vulkan_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_upload2d(vulkan_Resource * self, PyObject * args)
 {
 	Py_buffer view;
 	uint32_t pitch;
@@ -1486,7 +1580,7 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-static PyObject* vulkan_Resource_readback(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_readback(vulkan_Resource * self, PyObject * args)
 {
 	size_t size;
 	size_t offset;
@@ -1513,7 +1607,7 @@ static PyObject* vulkan_Resource_readback(vulkan_Resource* self, PyObject* args)
 	return py_bytes;
 }
 
-static PyObject* vulkan_Resource_readback2d(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_readback2d(vulkan_Resource * self, PyObject * args)
 {
 	uint32_t pitch;
 	uint32_t width;
@@ -1553,7 +1647,7 @@ static PyObject* vulkan_Resource_readback2d(vulkan_Resource* self, PyObject* arg
 	return py_bytes;
 }
 
-static PyObject* vulkan_Resource_copy_to(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_copy_to(vulkan_Resource * self, PyObject * args)
 {
 	PyObject* py_destination;
 	if (!PyArg_ParseTuple(args, "O", &py_destination))
@@ -1642,7 +1736,7 @@ static PyMethodDef vulkan_Resource_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Swapchain_present(vulkan_Swapchain* self, PyObject* args)
+static PyObject* vulkan_Swapchain_present(vulkan_Swapchain * self, PyObject * args)
 {
 	PyObject* py_resource;
 	uint32_t x;
@@ -1732,7 +1826,7 @@ static PyMethodDef vulkan_Swapchain_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_Compute_dispatch(vulkan_Compute* self, PyObject* args)
+static PyObject* vulkan_Compute_dispatch(vulkan_Compute * self, PyObject * args)
 {
 	uint32_t x, y, z;
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
@@ -1767,13 +1861,13 @@ static PyMethodDef vulkan_Compute_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject* vulkan_enable_debug(PyObject* self)
+static PyObject* vulkan_enable_debug(PyObject * self)
 {
 	vulkan_debug = true;
 	Py_RETURN_NONE;
 }
 
-static PyObject* vulkan_get_shader_binary_type(PyObject* self)
+static PyObject* vulkan_get_shader_binary_type(PyObject * self)
 {
 	return PyLong_FromLong(COMPUSHADY_SHADER_BINARY_TYPE_SPIRV);
 }

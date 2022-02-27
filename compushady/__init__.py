@@ -13,6 +13,22 @@ class UnknownBackend(Exception):
     pass
 
 
+class BufferException(Exception):
+    pass
+
+
+class Texture1DException(Exception):
+    pass
+
+
+class Texture2DException(Exception):
+    pass
+
+
+class Texture3DException(Exception):
+    pass
+
+
 _backend = None
 _discovered_devices = None
 _current_device = None
@@ -128,11 +144,13 @@ class Texture2D(Resource):
     def row_pitch(self):
         return self.handle.row_pitch
 
+
 class Texture3D(Resource):
 
     def __init__(self, width, height, depth, format, device=None):
         self.device = device if device else get_current_device()
-        self.handle = self.device.create_texture3d(width, height, depth, format)
+        self.handle = self.device.create_texture3d(
+            width, height, depth, format)
 
     @classmethod
     def from_native(cls, ptr, device=None):

@@ -50,19 +50,6 @@ float3 barycentric(float2 a, float2 b, float2 c, float2 p)
     return float3(1.0 - (u.x+u.y)/u.z, u.y/u.z, u.x/u.z);
 }
 
-void draw_line(int2 a, float3 a_color, int2 b, float3 b_color)
-{
-    uint line_length = distance(a, b);
-    for(uint i = 0; i < line_length; i++)
-    {
-        float gradient = float(i) / float(line_length);
-        float x = float(a.x) + (float(b.x - a.x) * gradient);
-        float y = float(a.y) + (float(b.y - a.y) * gradient);
-        uint2 xy = uint2(uint(x), uint(y));
-        target[xy] = float4(a_color, 1);
-    }
-}
-
 void draw_triangle(uint2 a, uint2 b, uint2 c, uint2 p)
 {
     float3 bc = barycentric(a, b, c, p);
@@ -81,10 +68,6 @@ void main(int3 tid : SV_DispatchThreadID)
     uint2 c = vertices[tid.z * 3 + 2];
    
     draw_triangle(a, b, c, uint2(tid.x, tid.y));
-    
-    /*draw_line(a, float3(1, 0, 0), b, float3(0, 1, 0));
-    draw_line(b, float3(0, 1, 0), c, float3(0, 0, 1));
-    draw_line(c, float3(0, 0, 1), a, float3(1, 0, 0));*/
 }
 """)
 
@@ -94,7 +77,7 @@ glfw.init()
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-window = glfw.create_window(1024, 1024, "Hello World", None, None)
+window = glfw.create_window(1024, 1024, "Rasterizer", None, None)
 
 if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
@@ -112,6 +95,6 @@ while not glfw.window_should_close(window):
     x += 1
     y += 1
 
-swapchain = None  # this ensure the swapchain is destroyed before the window
+swapchain = None  # this ensures the swapchain is destroyed before the window
 
 glfw.terminate()

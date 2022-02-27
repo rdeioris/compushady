@@ -1,5 +1,5 @@
 import unittest
-from compushady import Buffer, HEAP_UPLOAD, HEAP_READBACK
+from compushady import Buffer, HEAP_UPLOAD, HEAP_READBACK, BufferException
 
 
 class BufferTests(unittest.TestCase):
@@ -15,3 +15,6 @@ class BufferTests(unittest.TestCase):
         b0.upload(b'hello!!!')
         b0.copy_to(b1)
         self.assertEqual(b0.readback(), b1.readback())
+
+    def test_empty_buffer(self):
+        self.assertRaises(BufferException, Buffer, 0)

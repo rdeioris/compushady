@@ -56,6 +56,11 @@
 #define B8G8R8A8_UNORM 87
 #define B8G8R8A8_UNORM_SRGB 91
 
+extern PyObject* Compushady_BufferError;
+extern PyObject* Compushady_Texture1DError;
+extern PyObject* Compushady_Texture2DError;
+extern PyObject* Compushady_Texture3DError;
+
 
 PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
