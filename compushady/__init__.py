@@ -126,10 +126,11 @@ class Texture2D(Resource):
         self.handle = self.device.create_texture2d(width, height, format)
 
     @classmethod
-    def from_native(cls, ptr, device=None):
+    def from_native(cls, ptr, width, height, format, device=None):
         instance = cls.__new__(cls)
         instance.device = device if device else get_current_device()
-        instance.handle = instance.device.create_texture2d_from_native(ptr)
+        instance.handle = instance.device.create_texture2d_from_native(
+            ptr, width, height, format)
         return instance
 
     @property

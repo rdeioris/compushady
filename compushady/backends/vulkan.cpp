@@ -730,7 +730,6 @@ static bool vulkan_texture_set_layout(vulkan_Device * py_device, VkImage image, 
 
 	return result == VK_SUCCESS;
 }
-
 static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject * args)
 {
 	uint32_t width;
@@ -814,7 +813,65 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject *
 	py_resource->descriptor_image_info.imageView = py_resource->image_view;
 	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	py_resource->row_pitch = width * vulkan_formats[format].second;
-	py_resource->size = py_resource->row_pitch * height; // alway assume a packed configuration
+	py_resource->size = py_resource->row_pitch * height; // always assume a packed configuration
+
+	return (PyObject*)py_resource;
+}
+
+static PyObject* vulkan_Device_create_texture2d_from_native(vulkan_Device * self, PyObject * args)
+{
+	unsigned long long texture_ptr;
+	uint32_t width;
+	uint32_t height;
+	VkFormat format;
+	if (!PyArg_ParseTuple(args, "KIIi", &texture_ptr, &width, &height, &format))
+		return NULL;
+
+	if (vulkan_formats.find(format) == vulkan_formats.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	vulkan_Device* py_device = vulkan_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	vulkan_Resource* py_resource = (vulkan_Resource*)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
+	if (!py_resource)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Texture2D");
+	}
+	COMPUSHADY_CLEAR(py_resource);
+	py_resource->py_device = py_device;
+	Py_INCREF(py_resource->py_device);
+
+	py_resource->image = (VkImage)texture_ptr;
+	VkImageSubresource image_subresource = {};
+	image_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+	VkImageViewCreateInfo image_view_create_info = {};
+	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	image_view_create_info.image = py_resource->image;
+	image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	image_view_create_info.format = vulkan_formats[format].first;
+	image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_view_create_info.subresourceRange.levelCount = 1;
+	image_view_create_info.subresourceRange.layerCount = 1;
+
+	VkResult result = vkCreateImageView(py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_resource);
+		return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Image View");
+	}
+
+	py_resource->image_extent.width = width;
+	py_resource->image_extent.height = height;
+	py_resource->image_extent.depth = 1;
+	py_resource->descriptor_image_info.imageView = py_resource->image_view;
+	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+	py_resource->row_pitch = width * vulkan_formats[format].second;
+	py_resource->size = py_resource->row_pitch * height; // always assume a packed configuration
 
 	return (PyObject*)py_resource;
 }
@@ -1436,9 +1493,8 @@ static PyMethodDef vulkan_Device_methods[] = {
 	{"create_texture1d", (PyCFunction)vulkan_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
 	{"create_texture2d", (PyCFunction)vulkan_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
 	{"create_texture3d", (PyCFunction)vulkan_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
-	/*
-	{"create_buffer_from_native", (PyCFunction)d3d12_Device_create_buffer_from_native, METH_VARARGS, "Creates a Buffer object from a low level pointer"},
-	{"create_texture2d_from_native", (PyCFunction)d3d12_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},*/
+	/*{"create_buffer_from_native", (PyCFunction)d3d12_Device_create_buffer_from_native, METH_VARARGS, "Creates a Buffer object from a low level pointer"},*/
+	{"create_texture2d_from_native", (PyCFunction)vulkan_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
 	{"get_debug_messages", (PyCFunction)vulkan_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)vulkan_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
 	{"create_swapchain", (PyCFunction)vulkan_Device_create_swapchain, METH_VARARGS | METH_KEYWORDS, "Creates a Swapchain object"},
