@@ -13,11 +13,13 @@ if platform.system() == 'Windows':
     backends.append(Extension('compushady.backends.d3d12',
                               libraries=['dxgi', 'd3d12'],
                               sources=['compushady/backends/d3d12.cpp',
-                                       'compushady/backends/common.cpp']
+                                       'compushady/backends/dxgi.cpp',
+                                       'compushady/backends/common.cpp', ]
                               ))
     backends.append(Extension('compushady.backends.d3d11',
                               libraries=['dxgi', 'd3d11'],
                               sources=['compushady/backends/d3d11.cpp',
+                                       'compushady/backends/dxgi.cpp',
                                        'compushady/backends/common.cpp']
                               ))
 

@@ -1,15 +1,12 @@
-#include <Python.h>
-#include "structmember.h"
 #include <d3d11.h>
 #include <dxgi1_3.h>
 #include <comdef.h>
-#include <vector>
 
-#define HEAP_DEFAULT 0
-#define HEAP_UPLOAD 1
-#define HEAP_READBACK 2
+#include "compushady.h"
 
-#define ADD_FORMAT(x) PyModule_AddObject(m, "FORMAT_" #x, PyLong_FromLongLong(DXGI_FORMAT_##x))
+void dxgi_init_pixel_formats();
+
+extern std::unordered_map<int, size_t> dxgi_pixels_sizes;
 
 typedef struct d3d11_Device
 {
@@ -201,14 +198,14 @@ static PyObject* d3d11_Device_create_buffer(d3d12_Device* self, PyObject* args)
 
 	switch (heap)
 	{
-	case HEAP_DEFAULT:
+	case COMPUSHADY_HEAP_DEFAULT:
 		buffer_desc.Usage = D3D11_USAGE_DEFAULT;
 		break;
-	case HEAP_UPLOAD:
+	case COMPUSHADY_HEAP_UPLOAD:
 		buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
 		cpu_access = D3D11_CPU_ACCESS_WRITE;
 		break;
-	case HEAP_READBACK:
+	case COMPUSHADY_HEAP_READBACK:
 		buffer_desc.Usage = D3D11_USAGE_STAGING;
 		cpu_access = D3D11_CPU_ACCESS_READ;
 		break;
@@ -222,7 +219,7 @@ static PyObject* d3d11_Device_create_buffer(d3d12_Device* self, PyObject* args)
 	HRESULT hr = device->CreateBuffer(&buffer_desc, NULL, &buffer);
 	if (hr != S_OK)
 	{
-		return d3d11_generate_exception(hr, "Unable to create ID3D12Resource1");
+		return d3d11_generate_exception(hr, "Unable to create ID3D11Buffer");
 	}
 
 	d3d11_Resource* py_resource = (d3d11_Resource*)PyObject_New(d3d11_Resource, &d3d11_Resource_Type);
@@ -266,14 +263,14 @@ static PyObject* d3d11_Device_create_texture2d(d3d11_Device* self, PyObject* arg
 	HRESULT hr = device->CreateTexture2D(&texture2d_desc, NULL, &texture);
 	if (hr != S_OK)
 	{
-		return d3d11_generate_exception(hr, "Unable to create ID3D12Resource1");
+		return d3d11_generate_exception(hr, "Unable to create ID3D11Texture2D");
 	}
 
 	d3d11_Resource* py_resource = (d3d11_Resource*)PyObject_New(d3d11_Resource, &d3d11_Resource_Type);
 	if (!py_resource)
 	{
 		texture->Release();
-		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Resource");
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d11 Resource");
 	}
 
 	py_resource->resource = texture;
@@ -516,7 +513,7 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-static PyMethodDef d3d12_Resource_methods[] = {
+static PyMethodDef d3d11_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d11_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"readback", (PyCFunction)d3d11_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
 	{"copy_to", (PyCFunction)d3d11_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
@@ -605,101 +602,15 @@ static struct PyModuleDef compushady_backends_d3d11_module = {
 PyMODINIT_FUNC
 PyInit_d3d11(void)
 {
-	PyObject* m = PyModule_Create(&compushady_backends_d3d11_module);
-	if (m == NULL)
-		return NULL;
+	PyObject* m = compushady_backend_init(
+		&compushady_backends_d3d11_module,
+		&d3d11_Device_Type, d3d11_Device_members, d3d11_Device_methods,
+		&d3d11_Resource_Type, NULL /*d3d11_Resource_members*/, d3d11_Resource_methods,
+		NULL /* &d3d11_Swapchain_Type */, /*d3d11_Swapchain_members*/ NULL, /*d3d11_Swapchain_methods*/ NULL,
+		&d3d11_Compute_Type, NULL, d3d11_Compute_methods
+	);
 
-	d3d11_Device_Type.tp_members = d3d11_Device_members;
-	d3d11_Device_Type.tp_methods = d3d11_Device_methods;
-	if (PyType_Ready(&d3d11_Device_Type) < 0)
-	{
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d11_Device_Type);
-	if (PyModule_AddObject(m, "Device", (PyObject*)&d3d11_Device_Type) < 0)
-	{
-		Py_DECREF(&d3d11_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	d3d11_Resource_Type.tp_methods = d3d12_Resource_methods;
-	if (PyType_Ready(&d3d11_Resource_Type) < 0)
-	{
-		Py_DECREF(&d3d11_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d11_Resource_Type);
-	if (PyModule_AddObject(m, "Resource", (PyObject*)&d3d11_Resource_Type) < 0)
-	{
-		Py_DECREF(&d3d11_Resource_Type);
-		Py_DECREF(&d3d11_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	d3d11_Compute_Type.tp_methods = d3d11_Compute_methods;
-	if (PyType_Ready(&d3d11_Compute_Type) < 0)
-	{
-		Py_DECREF(&d3d11_Resource_Type);
-		Py_DECREF(&d3d11_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-	Py_INCREF(&d3d11_Compute_Type);
-	if (PyModule_AddObject(m, "Compute", (PyObject*)&d3d11_Compute_Type) < 0)
-	{
-		Py_DECREF(&d3d11_Compute_Type);
-		Py_DECREF(&d3d11_Resource_Type);
-		Py_DECREF(&d3d11_Device_Type);
-		Py_DECREF(m);
-		return NULL;
-	}
-
-	ADD_FORMAT(R32G32B32A32_FLOAT);
-	ADD_FORMAT(R32G32B32A32_UINT);
-	ADD_FORMAT(R32G32B32A32_SINT);
-	ADD_FORMAT(R32G32B32_FLOAT);
-	ADD_FORMAT(R32G32B32_UINT);
-	ADD_FORMAT(R32G32B32_SINT);
-	ADD_FORMAT(R16G16B16A16_FLOAT);
-	ADD_FORMAT(R16G16B16A16_UNORM);
-	ADD_FORMAT(R16G16B16A16_UINT);
-	ADD_FORMAT(R16G16B16A16_SNORM);
-	ADD_FORMAT(R16G16B16A16_SINT);
-	ADD_FORMAT(R32G32_FLOAT);
-	ADD_FORMAT(R32G32_UINT);
-	ADD_FORMAT(R32G32_SINT);
-	ADD_FORMAT(R8G8B8A8_UNORM);
-	ADD_FORMAT(R8G8B8A8_UNORM_SRGB);
-	ADD_FORMAT(R8G8B8A8_UINT);
-	ADD_FORMAT(R8G8B8A8_SNORM);
-	ADD_FORMAT(R8G8B8A8_SINT);
-	ADD_FORMAT(R16G16_FLOAT);
-	ADD_FORMAT(R16G16_UNORM);
-	ADD_FORMAT(R16G16_UINT);
-	ADD_FORMAT(R16G16_SNORM);
-	ADD_FORMAT(R16G16_SINT);
-	ADD_FORMAT(R32_FLOAT);
-	ADD_FORMAT(R32_UINT);
-	ADD_FORMAT(R32_SINT);
-	ADD_FORMAT(R8G8_UNORM);
-	ADD_FORMAT(R8G8_UINT);
-	ADD_FORMAT(R8G8_SNORM);
-	ADD_FORMAT(R8G8_SINT);
-	ADD_FORMAT(R16_FLOAT);
-	ADD_FORMAT(R16_UNORM);
-	ADD_FORMAT(R16_UINT);
-	ADD_FORMAT(R16_SNORM);
-	ADD_FORMAT(R16_SINT);
-	ADD_FORMAT(R8_UNORM);
-	ADD_FORMAT(R8_UINT);
-	ADD_FORMAT(R8_SNORM);
-	ADD_FORMAT(R8_SINT);
-	ADD_FORMAT(B8G8R8A8_UNORM);
-	ADD_FORMAT(B8G8R8A8_UNORM_SRGB);
+	dxgi_init_pixel_formats();
 
 	return m;
 }

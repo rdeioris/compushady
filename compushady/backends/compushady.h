@@ -1,6 +1,7 @@
 #include <Python.h>
 #include "structmember.h"
 #include <vector>
+#include <unordered_map>
 
 #define COMPUSHADY_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
 
