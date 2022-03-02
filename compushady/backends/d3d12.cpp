@@ -14,6 +14,12 @@ typedef struct d3d12_Device
 	PyObject_HEAD;
 	IDXGIAdapter1* adapter;
 	ID3D12Device1* device;
+	ID3D12CommandQueue* queue;
+	ID3D12Fence1* fence;
+	HANDLE fence_event;
+	UINT64 fence_value;
+	ID3D12CommandAllocator* command_allocator;
+	ID3D12GraphicsCommandList1* command_list;
 	PyObject* name;
 	SIZE_T dedicated_video_memory;
 	SIZE_T dedicated_system_memory;
@@ -22,6 +28,7 @@ typedef struct d3d12_Device
 	UINT device_id;
 	char is_hardware;
 	char is_discrete;
+
 } d3d12_Device;
 
 typedef struct d3d12_Resource
@@ -40,6 +47,7 @@ typedef struct d3d12_Swapchain
 {
 	PyObject_HEAD;
 	d3d12_Device* py_device;
+	IDXGISwapChain1* swapchain;
 } d3d12_Swapchain;
 
 typedef struct d3d12_Compute
@@ -49,12 +57,6 @@ typedef struct d3d12_Compute
 	ID3D12RootSignature* root_signature;
 	ID3D12DescriptorHeap* descriptor_heap;
 	ID3D12PipelineState* pipeline;
-	ID3D12CommandQueue* queue;
-	ID3D12Fence1* fence;
-	HANDLE fence_event;
-	UINT64 fence_value;
-	ID3D12CommandAllocator* command_allocator;
-	ID3D12GraphicsCommandList1* command_list;
 } d3d12_Compute;
 
 static PyObject* d3d12_generate_exception(PyObject* py_exc, HRESULT hr, const char* prefix)
@@ -88,6 +90,31 @@ static void d3d12_Device_dealloc(d3d12_Device* self)
 {
 	Py_XDECREF(self->name);
 
+	if (self->command_list)
+	{
+		self->command_list->Release();
+	}
+
+	if (self->command_allocator)
+	{
+		self->command_allocator->Release();
+	}
+
+	if (self->fence_event)
+	{
+		CloseHandle(self->fence_event);
+	}
+
+	if (self->fence)
+	{
+		self->fence->Release();
+	}
+
+	if (self->queue)
+	{
+		self->queue->Release();
+	}
+
 	if (self->device)
 	{
 		self->device->Release();
@@ -101,10 +128,10 @@ static void d3d12_Device_dealloc(d3d12_Device* self)
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static ID3D12Device1* d3d12_Device_get_device(d3d12_Device* self)
+static d3d12_Device* d3d12_Device_get_device(d3d12_Device* self)
 {
 	if (self->device)
-		return self->device;
+		return self;
 
 	HRESULT hr = D3D12CreateDevice(self->adapter, D3D_FEATURE_LEVEL_12_0, __uuidof(ID3D12Device1), (void**)&self->device);
 	if (hr != S_OK)
@@ -113,7 +140,66 @@ static ID3D12Device1* d3d12_Device_get_device(d3d12_Device* self)
 		return NULL;
 	}
 
-	return self->device;
+	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
+	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+
+	hr = self->device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)&self->queue);
+	if (hr != S_OK)
+	{
+		self->device->Release();
+		self->device = NULL;
+		d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Queue");
+		return NULL;
+	}
+
+	hr = self->device->CreateFence(self->fence_value, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence1), (void**)&self->fence);
+	if (hr != S_OK)
+	{
+		self->queue->Release();
+		self->queue = NULL;
+		self->device->Release();
+		self->device = NULL;
+		d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Fence");
+		return NULL;
+	}
+
+	self->fence_event = CreateEvent(NULL, FALSE, FALSE, NULL);
+
+	hr = self->device->CreateCommandAllocator(queue_desc.Type, __uuidof(ID3D12CommandAllocator), (void**)&self->command_allocator);
+	if (hr != S_OK)
+	{
+		CloseHandle(self->fence_event);
+		self->fence_event = NULL;
+		self->fence->Release();
+		self->fence = NULL;
+		self->queue->Release();
+		self->queue = NULL;
+		self->device->Release();
+		self->device = NULL;
+		d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Allocator");
+		return NULL;
+	}
+
+	hr = self->device->CreateCommandList(0, queue_desc.Type, self->command_allocator, NULL, __uuidof(ID3D12GraphicsCommandList1), (void**)&self->command_list);
+	if (hr != S_OK)
+	{
+		self->command_allocator->Release();
+		self->command_allocator = NULL;
+		CloseHandle(self->fence_event);
+		self->fence_event = NULL;
+		self->fence->Release();
+		self->fence = NULL;
+		self->queue->Release();
+		self->queue = NULL;
+		self->device->Release();
+		self->device = NULL;
+		d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command List");
+		return NULL;
+	}
+
+	self->command_list->Close();
+
+	return self;
 }
 
 
@@ -206,16 +292,6 @@ static PyTypeObject d3d12_Swapchain_Type = {
 
 static void d3d12_Compute_dealloc(d3d12_Compute* self)
 {
-	if (self->command_list)
-		self->command_list->Release();
-	if (self->command_allocator)
-		self->command_allocator->Release();
-	if (self->fence_event)
-		CloseHandle(self->fence_event);
-	if (self->fence)
-		self->fence->Release();
-	if (self->queue)
-		self->queue->Release();
 	if (self->pipeline)
 		self->pipeline->Release();
 	if (self->descriptor_heap)
@@ -251,6 +327,48 @@ static PyTypeObject d3d12_Compute_Type = {
 	"compushady d3d12 Compute",                                          /* tp_doc */
 };
 
+static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* args)
+{
+	HWND window_handle;
+	int format;
+	uint32_t num_buffers;
+	if (!PyArg_ParseTuple(args, "KiI", &window_handle, &format, &num_buffers))
+		return NULL;
+
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	d3d12_Swapchain* py_swapchain = (d3d12_Swapchain*)PyObject_New(d3d12_Swapchain, &d3d12_Swapchain_Type);
+	if (!py_swapchain)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Swapchain");
+	}
+	COMPUSHADY_CLEAR(py_swapchain);
+	py_swapchain->py_device = py_device;
+	Py_INCREF(py_swapchain->py_device);
+
+	IDXGIFactory2* factory = NULL;
+	HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), (void**)&factory);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_swapchain);
+		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create IDXGIFactory2");
+	}
+
+	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc1 = {};
+
+	hr = factory->CreateSwapChainForHwnd(py_device->queue, window_handle, &swap_chain_desc1, NULL, NULL, &py_swapchain->swapchain);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_swapchain);
+		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Swapchain");
+	}
+
+	return (PyObject*)py_swapchain;
+}
+
+
 static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 {
 	int heap;
@@ -268,8 +386,8 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 		}
 	}
 
-	ID3D12Device1* device = d3d12_Device_get_device(self);
-	if (!device)
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
 		return NULL;
 
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -308,7 +426,7 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 
 
 	ID3D12Resource1* resource;
-	HRESULT hr = device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	HRESULT hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
 
 	if (hr != S_OK)
 	{
@@ -322,7 +440,7 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Resource");
 	}
 	COMPUSHADY_CLEAR(py_resource);
-	py_resource->py_device = self;
+	py_resource->py_device = py_device;
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->resource = resource;
@@ -346,8 +464,8 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
-	ID3D12Device1* device = d3d12_Device_get_device(self);
-	if (!device)
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
 		return NULL;
 
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -370,7 +488,7 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 	}
 
 	ID3D12Resource1* resource;
-	HRESULT hr = device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	HRESULT hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
 
 	if (hr != S_OK)
 	{
@@ -388,7 +506,7 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->resource = resource;
-	device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
+	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
@@ -409,8 +527,8 @@ static PyObject* d3d12_Device_create_texture2d(d3d12_Device* self, PyObject* arg
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
-	ID3D12Device1* device = d3d12_Device_get_device(self);
-	if (!device)
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
 		return NULL;
 
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -430,7 +548,7 @@ static PyObject* d3d12_Device_create_texture2d(d3d12_Device* self, PyObject* arg
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
 	ID3D12Resource1* resource;
-	HRESULT hr = device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	HRESULT hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
 
 	if (hr != S_OK)
 	{
@@ -448,7 +566,7 @@ static PyObject* d3d12_Device_create_texture2d(d3d12_Device* self, PyObject* arg
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->resource = resource;
-	device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
+	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
@@ -470,8 +588,8 @@ static PyObject* d3d12_Device_create_texture3d(d3d12_Device* self, PyObject* arg
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
-	ID3D12Device1* device = d3d12_Device_get_device(self);
-	if (!device)
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
 		return NULL;
 
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
@@ -491,8 +609,7 @@ static PyObject* d3d12_Device_create_texture3d(d3d12_Device* self, PyObject* arg
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
 	ID3D12Resource1* resource;
-	HRESULT hr = device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
-
+	HRESULT hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
 	if (hr != S_OK)
 	{
 		return d3d12_generate_exception(Compushady_Texture3DError, hr, "Unable to create ID3D12Resource1");
@@ -509,7 +626,7 @@ static PyObject* d3d12_Device_create_texture3d(d3d12_Device* self, PyObject* arg
 	Py_INCREF(py_resource->py_device);
 	py_resource->resource = resource;
 
-	device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
+	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC*)&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
@@ -542,7 +659,6 @@ static PyObject* d3d12_Device_create_texture2d_from_native(d3d12_Device* self, P
 	py_resource->resource->AddRef();
 	py_resource->py_device->device->GetCopyableFootprints(&resource_desc, 0, 1, 0, &py_resource->footprint, NULL, NULL, &py_resource->size);
 	py_resource->dimension = resource_desc.Dimension;
-	py_resource->stride = 0;
 	py_resource->format = resource_desc.Format;
 
 	return (PyObject*)py_resource;
@@ -586,8 +702,8 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 		&view, &py_cbv, &py_srv, &py_uav))
 		return NULL;
 
-	ID3D12Device1* device = d3d12_Device_get_device(self);
-	if (!device)
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
 		return NULL;
 
 	std::vector<d3d12_Resource*> cbv;
@@ -650,10 +766,10 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Compute");
 	}
 	COMPUSHADY_CLEAR(py_compute);
-	py_compute->py_device = self;
+	py_compute->py_device = py_device;
 	Py_INCREF(py_compute->py_device);
 
-	hr = device->CreateRootSignature(0, serialized_root_signature->GetBufferPointer(), serialized_root_signature->GetBufferSize(), __uuidof(ID3D12RootSignature), (void**)&py_compute->root_signature);
+	hr = py_device->device->CreateRootSignature(0, serialized_root_signature->GetBufferPointer(), serialized_root_signature->GetBufferSize(), __uuidof(ID3D12RootSignature), (void**)&py_compute->root_signature);
 	serialized_root_signature->Release();
 	if (hr != S_OK)
 	{
@@ -667,7 +783,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	descriptor_heap_desc.NumDescriptors = (UINT)(cbv.size() + srv.size() + uav.size());
 
-	hr = device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)&py_compute->descriptor_heap);
+	hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)&py_compute->descriptor_heap);
 	if (hr != S_OK)
 	{
 		PyBuffer_Release(&view);
@@ -675,7 +791,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Descriptor Heap");
 	}
 
-	UINT increment = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+	UINT increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->descriptor_heap->GetCPUDescriptorHandleForHeapStart();
 
 	for (d3d12_Resource* resource : cbv)
@@ -683,7 +799,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 		D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
 		cbv_desc.BufferLocation = resource->resource->GetGPUVirtualAddress();
 		cbv_desc.SizeInBytes = (UINT)COMPUSHADY_ALIGN(resource->size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
-		device->CreateConstantBufferView(&cbv_desc, cpu_handle);
+		py_device->device->CreateConstantBufferView(&cbv_desc, cpu_handle);
 		cpu_handle.ptr += increment;
 	}
 
@@ -701,11 +817,11 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 			{
 				srv_desc.Buffer.NumElements = (UINT)(resource->size / resource->stride);
 			}
-			device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
+			py_device->device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
 		}
 		else
 		{
-			device->CreateShaderResourceView(resource->resource, NULL, cpu_handle);
+			py_device->device->CreateShaderResourceView(resource->resource, NULL, cpu_handle);
 		}
 		cpu_handle.ptr += increment;
 	}
@@ -723,11 +839,11 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 			{
 				uav_desc.Buffer.NumElements = (UINT)(resource->size / resource->stride);
 			}
-			device->CreateUnorderedAccessView(resource->resource, NULL, &uav_desc, cpu_handle);
+			py_device->device->CreateUnorderedAccessView(resource->resource, NULL, &uav_desc, cpu_handle);
 		}
 		else
 		{
-			device->CreateUnorderedAccessView(resource->resource, NULL, NULL, cpu_handle);
+			py_device->device->CreateUnorderedAccessView(resource->resource, NULL, NULL, cpu_handle);
 		}
 		cpu_handle.ptr += increment;
 	}
@@ -737,7 +853,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	compute_pipeline_desc.CS.pShaderBytecode = view.buf;
 	compute_pipeline_desc.CS.BytecodeLength = view.len;
 
-	hr = device->CreateComputePipelineState(&compute_pipeline_desc, __uuidof(ID3D12PipelineState), (void**)&py_compute->pipeline);
+	hr = py_device->device->CreateComputePipelineState(&compute_pipeline_desc, __uuidof(ID3D12PipelineState), (void**)&py_compute->pipeline);
 	if (hr != S_OK)
 	{
 		PyBuffer_Release(&view);
@@ -746,41 +862,6 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	}
 
 	PyBuffer_Release(&view);
-
-	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
-
-	hr = self->device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)&py_compute->queue);
-	if (hr != S_OK)
-	{
-		Py_DECREF(py_compute);
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Queue");
-	}
-
-	hr = self->device->CreateFence(py_compute->fence_value, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence1), (void**)&py_compute->fence);
-	if (hr != S_OK)
-	{
-		Py_DECREF(py_compute);
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Fence");
-	}
-
-	py_compute->fence_event = CreateEvent(NULL, FALSE, FALSE, NULL);
-
-	hr = self->device->CreateCommandAllocator(queue_desc.Type, __uuidof(ID3D12CommandAllocator), (void**)&py_compute->command_allocator);
-	if (hr != S_OK)
-	{
-		Py_DECREF(py_compute);
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Allocator");
-	}
-
-	hr = self->device->CreateCommandList(0, queue_desc.Type, py_compute->command_allocator, NULL, __uuidof(ID3D12GraphicsCommandList1), (void**)&py_compute->command_list);
-	if (hr != S_OK)
-	{
-		Py_DECREF(py_compute);
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command List");
-	}
-
-	py_compute->command_list->Close();
 
 	return (PyObject*)py_compute;
 }
@@ -824,6 +905,7 @@ static PyMethodDef d3d12_Device_methods[] = {
 	{"create_texture3d", (PyCFunction)d3d12_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)d3d12_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
+	{"create_swapchain", (PyCFunction)d3d12_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -1012,50 +1094,11 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 		return PyErr_Format(PyExc_ValueError, "Resource size is bigger than destination size: %llu (expected no more than %llu)", self->size, dst_size);
 	}
 
-	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COPY;
-	ID3D12CommandQueue* queue;
-	HRESULT hr = self->py_device->device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)&queue);
-	if (hr != S_OK)
-	{
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Queue");
-	}
-
-	ID3D12Fence1* fence;
-	hr = self->py_device->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence1), (void**)&fence);
-	if (hr != S_OK)
-	{
-		queue->Release();
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Fence");
-	}
-
-	HANDLE fence_event = CreateEvent(NULL, FALSE, FALSE, NULL);
-	fence->SetEventOnCompletion(1, fence_event);
-
-	ID3D12CommandAllocator* command_allocator;
-	hr = self->py_device->device->CreateCommandAllocator(queue_desc.Type, __uuidof(ID3D12CommandAllocator), (void**)&command_allocator);
-	if (hr != S_OK)
-	{
-		fence->Release();
-		CloseHandle(fence_event);
-		queue->Release();
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command Allocator");
-	}
-
-	ID3D12GraphicsCommandList1* command_list;
-	hr = self->py_device->device->CreateCommandList(0, queue_desc.Type, command_allocator, NULL, __uuidof(ID3D12GraphicsCommandList1), (void**)&command_list);
-	if (hr != S_OK)
-	{
-		command_allocator->Release();
-		fence->Release();
-		CloseHandle(fence_event);
-		queue->Release();
-		return d3d12_generate_exception(PyExc_Exception, hr, "Unable to create Command List");
-	}
-
+	self->py_device->command_list->Reset(self->py_device->command_allocator, NULL);
+	
 	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
-		command_list->CopyBufferRegion(dst_resource->resource, 0, self->resource, 0, self->size);
+		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, 0, self->resource, 0, self->size);
 	}
 	else // texture copy
 	{
@@ -1082,20 +1125,14 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 		{
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 		}
-		command_list->CopyTextureRegion(&dest_location, 0, 0, 0, &src_location, NULL);
+		self->py_device->command_list->CopyTextureRegion(&dest_location, 0, 0, 0, &src_location, NULL);
 	}
-	command_list->Close();
+	self->py_device->command_list->Close();
 
-	queue->ExecuteCommandLists(1, (ID3D12CommandList**)&command_list);
-	queue->Signal(fence, 1);
-
-	WaitForSingleObject(fence_event, INFINITE);
-
-	command_list->Release();
-	command_allocator->Release();
-	fence->Release();
-	CloseHandle(fence_event);
-	queue->Release();
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
 
 	Py_RETURN_NONE;
 }
@@ -1116,17 +1153,17 @@ static PyObject* d3d12_Compute_dispatch(d3d12_Compute* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
 		return NULL;
 
-	self->command_list->Reset(self->command_allocator, self->pipeline);
-	self->command_list->SetDescriptorHeaps(1, &self->descriptor_heap);
-	self->command_list->SetComputeRootSignature(self->root_signature);
-	self->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heap->GetGPUDescriptorHandleForHeapStart());
-	self->command_list->Dispatch(x, y, z);
-	self->command_list->Close();
+	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
+	self->py_device->command_list->SetDescriptorHeaps(1, &self->descriptor_heap);
+	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
+	self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heap->GetGPUDescriptorHandleForHeapStart());
+	self->py_device->command_list->Dispatch(x, y, z);
+	self->py_device->command_list->Close();
 
-	self->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->command_list);
-	self->queue->Signal(self->fence, ++self->fence_value);
-	self->fence->SetEventOnCompletion(self->fence_value, self->fence_event);
-	WaitForSingleObject(self->fence_event, INFINITE);
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
 
 	Py_RETURN_NONE;
 }

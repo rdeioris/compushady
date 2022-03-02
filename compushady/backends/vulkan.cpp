@@ -1497,7 +1497,7 @@ static PyMethodDef vulkan_Device_methods[] = {
 	{"create_texture2d_from_native", (PyCFunction)vulkan_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
 	{"get_debug_messages", (PyCFunction)vulkan_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)vulkan_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
-	{"create_swapchain", (PyCFunction)vulkan_Device_create_swapchain, METH_VARARGS | METH_KEYWORDS, "Creates a Swapchain object"},
+	{"create_swapchain", (PyCFunction)vulkan_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
