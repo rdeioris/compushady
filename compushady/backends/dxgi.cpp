@@ -1,5 +1,13 @@
 #include "compushady.h"
 
+#include <comdef.h>
+
+PyObject* d3d_generate_exception(PyObject* py_exc, HRESULT hr, const char* prefix)
+{
+	_com_error err(hr);
+	return PyErr_Format(py_exc, "%s: %s\n", prefix, err.ErrorMessage());
+}
+
 std::unordered_map<int, size_t> dxgi_pixels_sizes;
 
 #define DXGI_PIXEL_SIZE(x, value) dxgi_pixels_sizes[x] = value

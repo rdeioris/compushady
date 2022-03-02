@@ -157,7 +157,7 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
 			exception = Compushady_Texture3DError;
 			break;
 		}
-		PyErr_Format(exception, "Unable to create vulkan Image");
+		PyErr_Format(exception, "unable to create vulkan Image");
 		return VK_NULL_HANDLE;
 	}
 	return image;
@@ -470,7 +470,8 @@ static PyObject* vulkan_instance_check()
 			VkDebugUtilsMessengerEXT messenger;
 			VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = {};
 			debug_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-			debug_messenger_create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+			debug_messenger_create_info.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |*/
+				VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 			debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 			debug_messenger_create_info.pfnUserCallback = vulkan_debug_message_callback;
 			PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(vulkan_instance, "vkCreateDebugUtilsMessengerEXT");
@@ -540,7 +541,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device * self)
 			if (result != VK_SUCCESS)
 			{
 				vkDestroyDevice(device, NULL);
-				PyErr_Format(PyExc_Exception, "Unable to create vulkan Command Pool");
+				PyErr_Format(PyExc_Exception, "unable to create vulkan Command Pool");
 				return NULL;
 			}
 
@@ -555,7 +556,7 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device * self)
 			{
 				vkDestroyCommandPool(device, command_pool, NULL);
 				vkDestroyDevice(device, NULL);
-				PyErr_Format(PyExc_Exception, "Unable to create vulkan Command Buffer");
+				PyErr_Format(PyExc_Exception, "unable to create vulkan Command Buffer");
 				return NULL;
 			}
 
