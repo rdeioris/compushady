@@ -38,6 +38,7 @@ typedef struct d3d12_Resource
 	SIZE_T size;
 	UINT stride;
 	DXGI_FORMAT format;
+	D3D12_HEAP_TYPE heap_type;
 	D3D12_RESOURCE_DIMENSION dimension;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
 } d3d12_Resource;
@@ -379,6 +380,9 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 		}
 	}
 
+	if (!size)
+		return PyErr_Format(Compushady_BufferError, "zero size buffer");
+
 	d3d12_Device* py_device = d3d12_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -437,6 +441,7 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->resource = resource;
+	py_resource->heap_type = heap_properties.Type;
 	py_resource->size = size;
 	py_resource->dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	py_resource->stride = stride;
@@ -1087,10 +1092,33 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 		return PyErr_Format(PyExc_ValueError, "Resource size is bigger than destination size: %llu (expected no more than %llu)", self->size, dst_size);
 	}
 
+	D3D12_RESOURCE_BARRIER barriers[2] = {};
+	barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barriers[0].Transition.pResource = self->resource;
+	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barriers[1].Transition.pResource = dst_resource->resource;
+
+	bool reset_barrier0 = false;
+	bool reset_barrier1 = false;
+
 	self->py_device->command_list->Reset(self->py_device->command_allocator, NULL);
 
 	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
+		if (self->heap_type == D3D12_HEAP_TYPE_DEFAULT)
+		{
+			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+			barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
+			reset_barrier0 = true;
+		}
+		if (dst_resource->heap_type == D3D12_HEAP_TYPE_DEFAULT)
+		{
+			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+			barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
+			reset_barrier1 = true;
+		}
 		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, 0, self->resource, 0, self->size);
 	}
 	else // texture copy
@@ -1104,7 +1132,11 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 		}
 		else
 		{
+			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+			barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			reset_barrier1 = true;
 		}
 
 		D3D12_TEXTURE_COPY_LOCATION src_location = {};
@@ -1116,10 +1148,32 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 		}
 		else
 		{
+			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+			barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			reset_barrier0 = true;
 		}
+
 		self->py_device->command_list->CopyTextureRegion(&dest_location, 0, 0, 0, &src_location, NULL);
 	}
+
+	if (reset_barrier0)
+	{
+		D3D12_RESOURCE_STATES tmp = barriers[0].Transition.StateBefore;
+		barriers[0].Transition.StateBefore = barriers[0].Transition.StateAfter;
+		barriers[0].Transition.StateAfter = tmp;
+		self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
+	}
+
+	if (reset_barrier1)
+	{
+		D3D12_RESOURCE_STATES tmp = barriers[1].Transition.StateBefore;
+		barriers[1].Transition.StateBefore = barriers[1].Transition.StateAfter;
+		barriers[1].Transition.StateAfter = tmp;
+		self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
+	}
+
 	self->py_device->command_list->Close();
 
 	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);

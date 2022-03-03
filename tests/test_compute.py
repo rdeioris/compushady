@@ -1,7 +1,7 @@
 import numpy
 import struct
 import unittest
-from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK
+from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK, Texture2D
 from compushady.shaders import hlsl
 from compushady.formats import R32G32B32A32_UINT, R16G16B16A16_FLOAT, R32_UINT
 import compushady.config
@@ -60,3 +60,19 @@ class BufferTests(unittest.TestCase):
         b0.copy_to(b1)
         self.assertTrue(numpy.array_equal(numpy.frombuffer(b1.readback(), dtype=numpy.float16),
                                           (0, 3, 2, 1, 1, 3, 2, 1, 2, 3, 2, 1, 3, 3, 2, 1)))
+
+    def test_simple_texture2d_fill(self):
+        u0 = Texture2D(2, 2, R32_UINT)
+        shader = hlsl.compile("""
+        RWTexture2D<uint> texture : register(u0);
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            texture[tid.xy] = 17;
+        }
+        """)
+        compute = Compute(shader, uav=[u0])
+        compute.dispatch(1, 1, 1)
+        b0 = Buffer(u0.size, HEAP_READBACK)
+        u0.copy_to(b0)
+        self.assertEqual(b0.readback(4), b'\x11\0\0\0')

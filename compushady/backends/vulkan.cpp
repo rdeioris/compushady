@@ -603,6 +603,9 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device * self, PyObject * ar
 		}
 	}
 
+	if (!size)
+		return PyErr_Format(Compushady_BufferError, "zero size buffer");
+
 	vulkan_Device* py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -1740,29 +1743,76 @@ static PyObject* vulkan_Resource_copy_to(vulkan_Resource * self, PyObject * args
 	}
 	else if (self->buffer) // buffer to image
 	{
+		VkImageMemoryBarrier image_memory_barrier = {};
+		image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		image_memory_barrier.image = dst_resource->image;
+		image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		image_memory_barrier.subresourceRange.levelCount = 1;
+		image_memory_barrier.subresourceRange.layerCount = 1;
+		image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
 		VkBufferImageCopy buffer_image_copy = {};
 		buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		buffer_image_copy.imageSubresource.layerCount = 1;
 		buffer_image_copy.imageExtent = dst_resource->image_extent;
-		vkCmdCopyBufferToImage(self->py_device->command_buffer, self->buffer, dst_resource->image, VK_IMAGE_LAYOUT_GENERAL, 1, &buffer_image_copy);
+		vkCmdCopyBufferToImage(self->py_device->command_buffer, self->buffer, dst_resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy);
+		image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
 	}
 	else if (dst_resource->buffer) // image to buffer
 	{
+		VkImageMemoryBarrier image_memory_barrier = {};
+		image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		image_memory_barrier.image = self->image;
+		image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		image_memory_barrier.subresourceRange.levelCount = 1;
+		image_memory_barrier.subresourceRange.layerCount = 1;
+		image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
 		VkBufferImageCopy buffer_image_copy = {};
 		buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		buffer_image_copy.imageSubresource.layerCount = 1;
 		buffer_image_copy.imageExtent = self->image_extent;
-		vkCmdCopyImageToBuffer(self->py_device->command_buffer, self->image, VK_IMAGE_LAYOUT_GENERAL, dst_resource->buffer, 1, &buffer_image_copy);
+		vkCmdCopyImageToBuffer(self->py_device->command_buffer, self->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->buffer, 1, &buffer_image_copy);
+		image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
 	}
 	else // image to image
 	{
+		VkImageMemoryBarrier image_memory_barrier[2] = {};
+		image_memory_barrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		image_memory_barrier[0].image = self->image;
+		image_memory_barrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		image_memory_barrier[0].subresourceRange.levelCount = 1;
+		image_memory_barrier[0].subresourceRange.layerCount = 1;
+		image_memory_barrier[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		image_memory_barrier[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		image_memory_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		image_memory_barrier[1].image = dst_resource->image;
+		image_memory_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		image_memory_barrier[1].subresourceRange.levelCount = 1;
+		image_memory_barrier[1].subresourceRange.layerCount = 1;
+		image_memory_barrier[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		image_memory_barrier[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 2, image_memory_barrier);
 		VkImageCopy image_copy = {};
 		image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_copy.srcSubresource.layerCount = 1;
 		image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		image_copy.dstSubresource.layerCount = 1;
 		image_copy.extent = self->image_extent;
-		vkCmdCopyImage(self->py_device->command_buffer, self->image, VK_IMAGE_LAYOUT_GENERAL, dst_resource->image, VK_IMAGE_LAYOUT_GENERAL, 1, &image_copy);
+		vkCmdCopyImage(self->py_device->command_buffer, self->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);
+		image_memory_barrier[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		image_memory_barrier[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		image_memory_barrier[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		image_memory_barrier[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+		vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, 0, 0, 0, 0, 2, image_memory_barrier);
 	}
 
 	vkEndCommandBuffer(self->py_device->command_buffer);

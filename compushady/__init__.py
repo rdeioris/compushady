@@ -1,5 +1,6 @@
 import importlib
 from . import config
+import atexit
 
 HEAP_DEFAULT = 0
 HEAP_UPLOAD = 1
@@ -35,12 +36,17 @@ _current_device = None
 
 
 def get_backend():
+    def debug_callback():
+        messages = get_current_device().get_debug_messages()
+        for message in messages:
+            print(message)
     global _backend
     if _backend is None:
         _backend = importlib.import_module(
             'compushady.backends.{0}'.format(config.wanted_backend))
     if config.debug:
         _backend.enable_debug()
+        atexit.register(debug_callback)
     return _backend
 
 

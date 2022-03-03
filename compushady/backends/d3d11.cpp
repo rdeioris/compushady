@@ -236,6 +236,9 @@ static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 		}
 	}
 
+	if (!size)
+		return PyErr_Format(Compushady_BufferError, "zero size buffer");
+
 	d3d11_Device* py_device = d3d11_Device_get_device(self);
 	if (!py_device)
 		return NULL;
