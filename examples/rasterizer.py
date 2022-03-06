@@ -6,7 +6,6 @@ from compushady.shaders import hlsl
 import struct
 import platform
 
-compushady.config.set_backend('vulkan')
 compushady.config.set_debug(True)
 
 print('Using device', compushady.get_best_device().name)
@@ -22,7 +21,7 @@ buffer.copy_to(texture)
 
 print(texture)
 
-target = compushady.Texture2D(512, 512, compushady.formats.R8G8B8A8_UNORM)
+target = compushady.Texture2D(512, 512, compushady.formats.B8G8R8A8_UNORM)
 
 staging_buffer = compushady.Buffer(4 * 2 * 3 * 2, compushady.HEAP_UPLOAD)
 staging_buffer.upload(struct.pack('IIIIIIIIIIII', 10, 10,

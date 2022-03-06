@@ -7,12 +7,11 @@ import struct
 import platform
 import math
 
-compushady.config.set_backend('vulkan')
 compushady.config.set_debug(True)
 
 print('Using device', compushady.get_best_device().name)
 
-target = compushady.Texture2D(2048, 2048, compushady.formats.B8G8R8A8_UNORM)
+target = compushady.Texture2D(1024, 1024, compushady.formats.B8G8R8A8_UNORM)
 
 config = compushady.Buffer(4, compushady.HEAP_UPLOAD)
 
@@ -58,14 +57,15 @@ glfw.init()
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-window = glfw.create_window(target.width, target.height, "Mandlebrot", None, None)
+window = glfw.create_window(
+    target.width, target.height, 'Mandlebrot', None, None)
 
 if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
-        window), compushady.formats.B8G8R8A8_UNORM, 3)
+        window), compushady.formats.B8G8R8A8_UNORM, 2)
 else:
     swapchain = compushady.Swapchain((glfw.get_x11_display(), glfw.get_x11_window(
-        window)), compushady.formats.B8G8R8A8_UNORM, 5)
+        window)), compushady.formats.B8G8R8A8_UNORM, 2)
 
 multiplier = 0
 

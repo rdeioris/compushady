@@ -1851,6 +1851,21 @@ static PyObject* vulkan_Swapchain_present(vulkan_Swapchain * self, PyObject * ar
 	if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
 		return NULL;
 
+	int ret = PyObject_IsInstance(py_resource, (PyObject*)&vulkan_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+	vulkan_Resource* src_resource = (vulkan_Resource*)py_resource;
+	if (!src_resource->image)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Texture object");
+	}
+
 	uint32_t index = 0;
 	VkResult result = vkAcquireNextImageKHR(self->py_device->device, self->swapchain, UINT64_MAX, self->copy_semaphore, VK_NULL_HANDLE, &index);
 	if (result != VK_SUCCESS)
@@ -1864,32 +1879,41 @@ static PyObject* vulkan_Swapchain_present(vulkan_Swapchain * self, PyObject * ar
 	VkCommandBufferBeginInfo begin_info = {};
 	begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
-	VkImageMemoryBarrier image_memory_barrier = {};
-	image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-	image_memory_barrier.image = self->images[index];
-	image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	image_memory_barrier.subresourceRange.levelCount = 1;
-	image_memory_barrier.subresourceRange.layerCount = 1;
-	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	VkImageMemoryBarrier image_memory_barrier[2] = {};
+	image_memory_barrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	image_memory_barrier[0].image = self->images[index];
+	image_memory_barrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_memory_barrier[0].subresourceRange.levelCount = 1;
+	image_memory_barrier[0].subresourceRange.layerCount = 1;
+	image_memory_barrier[0].oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	image_memory_barrier[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	image_memory_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	image_memory_barrier[1].image = src_resource->image;
+	image_memory_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	image_memory_barrier[1].subresourceRange.levelCount = 1;
+	image_memory_barrier[1].subresourceRange.layerCount = 1;
+	image_memory_barrier[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+	image_memory_barrier[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
 	VkImageCopy image_copy = {};
 	image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	image_copy.srcSubresource.layerCount = 1;
 	image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	image_copy.dstSubresource.layerCount = 1;
-	image_copy.extent.width = Py_MIN(((vulkan_Resource*)py_resource)->image_extent.width, self->image_extent.width - x);
-	image_copy.extent.height = Py_MIN(((vulkan_Resource*)py_resource)->image_extent.height, self->image_extent.height - y);
+	image_copy.extent.width = Py_MIN(src_resource->image_extent.width, self->image_extent.width - x);
+	image_copy.extent.height = Py_MIN(src_resource->image_extent.height, self->image_extent.height - y);
 	image_copy.extent.depth = 1;
-	image_copy.dstOffset.x = Py_MIN(x, self->image_extent.width - 1);
-	image_copy.dstOffset.y = Py_MIN(y, self->image_extent.height - 1);
+	image_copy.dstOffset.x = x;
+	image_copy.dstOffset.y = y;
 
 	vkBeginCommandBuffer(self->py_device->command_buffer, &begin_info);
-	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
-	vkCmdCopyImage(self->py_device->command_buffer, ((vulkan_Resource*)py_resource)->image, VK_IMAGE_LAYOUT_GENERAL, self->images[index], VK_IMAGE_LAYOUT_GENERAL, 1, &image_copy);
-	image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-	image_memory_barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
+	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 2, image_memory_barrier);
+	vkCmdCopyImage(self->py_device->command_buffer, src_resource->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, self->images[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);
+	image_memory_barrier[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	image_memory_barrier[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+	image_memory_barrier[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	image_memory_barrier[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+	vkCmdPipelineBarrier(self->py_device->command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, 0, 0, 0, 2, image_memory_barrier);
 	vkEndCommandBuffer(self->py_device->command_buffer);
 
 	VkPipelineStageFlags flags = VK_PIPELINE_STAGE_TRANSFER_BIT;

@@ -44,9 +44,9 @@ def get_backend():
     if _backend is None:
         _backend = importlib.import_module(
             'compushady.backends.{0}'.format(config.wanted_backend))
-    if config.debug:
-        _backend.enable_debug()
-        atexit.register(debug_callback)
+        if config.debug:
+            _backend.enable_debug()
+            atexit.register(debug_callback)
     return _backend
 
 

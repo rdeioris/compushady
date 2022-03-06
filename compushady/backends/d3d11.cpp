@@ -38,6 +38,7 @@ typedef struct d3d11_Resource
 	UINT row_pitch;
 	UINT stride;
 	UINT cpu_access_flags;
+	DXGI_FORMAT format;
 } d3d11_Resource;
 
 typedef struct d3d11_Swapchain
@@ -340,6 +341,114 @@ static PyObject* d3d11_Device_create_texture2d(d3d11_Device* self, PyObject* arg
 	py_resource->row_pitch = (UINT)(width * dxgi_pixels_sizes[format]);
 	py_resource->size = py_resource->row_pitch * height;
 	py_resource->cpu_access_flags = texture2d_desc.CPUAccessFlags;
+	py_resource->format = format;
+
+	return (PyObject*)py_resource;
+}
+
+static PyObject* d3d11_Device_create_texture1d(d3d11_Device* self, PyObject* args)
+{
+	UINT width;
+	DXGI_FORMAT format;
+	if (!PyArg_ParseTuple(args, "Ii", &width, &format))
+		return NULL;
+
+	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	d3d11_Device* py_device = d3d11_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	D3D11_TEXTURE1D_DESC texture1d_desc = {};
+	texture1d_desc.Width = width;
+	texture1d_desc.Usage = D3D11_USAGE_DEFAULT;
+	texture1d_desc.ArraySize = 1;
+	texture1d_desc.MipLevels = 1;
+	texture1d_desc.Format = format;
+
+	ID3D11Texture1D* texture;
+	HRESULT hr = py_device->device->CreateTexture1D(&texture1d_desc, NULL, &texture);
+	if (hr != S_OK)
+	{
+		return d3d_generate_exception(Compushady_Texture2DError, hr, "Unable to create ID3D11Texture1D");
+	}
+
+	d3d11_Resource* py_resource = (d3d11_Resource*)PyObject_New(d3d11_Resource, &d3d11_Resource_Type);
+	if (!py_resource)
+	{
+		texture->Release();
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d11 Resource");
+	}
+	COMPUSHADY_CLEAR(py_resource);
+	py_resource->py_device = py_device;
+	Py_INCREF(py_resource->py_device);
+
+	py_resource->resource = texture;
+	py_resource->width = width;
+	py_resource->height = 1;
+	py_resource->depth = 1;
+	py_resource->row_pitch = (UINT)(width * dxgi_pixels_sizes[format]);
+	py_resource->size = py_resource->row_pitch;
+	py_resource->cpu_access_flags = texture1d_desc.CPUAccessFlags;
+	py_resource->format = format;
+
+	return (PyObject*)py_resource;
+}
+
+static PyObject* d3d11_Device_create_texture3d(d3d11_Device* self, PyObject* args)
+{
+	UINT width;
+	UINT height;
+	UINT depth;
+	DXGI_FORMAT format;
+	if (!PyArg_ParseTuple(args, "IIIi", &width, &height, &depth, &format))
+		return NULL;
+
+	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	d3d11_Device* py_device = d3d11_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	D3D11_TEXTURE3D_DESC texture3d_desc = {};
+	texture3d_desc.Width = width;
+	texture3d_desc.Height = height;
+	texture3d_desc.Depth = depth;
+	texture3d_desc.Usage = D3D11_USAGE_DEFAULT;
+	texture3d_desc.MipLevels = 1;
+	texture3d_desc.Format = format;
+
+	ID3D11Texture3D* texture;
+	HRESULT hr = py_device->device->CreateTexture3D(&texture3d_desc, NULL, &texture);
+	if (hr != S_OK)
+	{
+		return d3d_generate_exception(Compushady_Texture2DError, hr, "Unable to create ID3D11Texture3D");
+	}
+
+	d3d11_Resource* py_resource = (d3d11_Resource*)PyObject_New(d3d11_Resource, &d3d11_Resource_Type);
+	if (!py_resource)
+	{
+		texture->Release();
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d11 Resource");
+	}
+	COMPUSHADY_CLEAR(py_resource);
+	py_resource->py_device = py_device;
+	Py_INCREF(py_resource->py_device);
+
+	py_resource->resource = texture;
+	py_resource->width = width;
+	py_resource->height = height;
+	py_resource->depth = depth;
+	py_resource->row_pitch = (UINT)(width * dxgi_pixels_sizes[format]);
+	py_resource->size = py_resource->row_pitch * height * depth;
+	py_resource->cpu_access_flags = texture3d_desc.CPUAccessFlags;
+	py_resource->format = format;
 
 	return (PyObject*)py_resource;
 }
@@ -488,6 +597,8 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 static PyMethodDef d3d11_Device_methods[] = {
 	{"create_buffer", (PyCFunction)d3d11_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
 	{"create_texture2d", (PyCFunction)d3d11_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
+	{"create_texture1d", (PyCFunction)d3d11_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
+	{"create_texture3d", (PyCFunction)d3d11_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	{"get_debug_messages", (PyCFunction)d3d11_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)d3d11_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
@@ -628,7 +739,6 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 			{
 				return PyErr_Format(PyExc_Exception, "unable to Map() source buffer");
 			}
-			printf("DATA %x %x %x %x\n", ((char*)mapped.pData)[0], ((char*)mapped.pData)[1], ((char*)mapped.pData)[2], ((char*)mapped.pData)[3]);
 			self->py_device->context->UpdateSubresource(dst_resource->resource, 0, NULL, mapped.pData, dst_resource->row_pitch, dst_resource->row_pitch * dst_resource->height);
 			self->py_device->context->Unmap(self->resource, 0);
 		}
@@ -640,7 +750,7 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 				D3D11_BUFFER_DESC buffer_desc = {};
 				buffer_desc.Usage = D3D11_USAGE_STAGING;
 				buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-				buffer_desc.ByteWidth = self->size;
+				buffer_desc.ByteWidth = (UINT)self->size;
 				HRESULT hr = self->py_device->device->CreateBuffer(&buffer_desc, NULL, (ID3D11Buffer**)&self->staging_resource);
 				if (hr != S_OK)
 				{
@@ -648,7 +758,6 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 				}
 			}
 			self->py_device->context->CopyResource(self->staging_resource, self->resource);
-			self->py_device->context->Flush();
 			D3D11_MAPPED_SUBRESOURCE mapped;
 			HRESULT hr = self->py_device->context->Map(self->staging_resource, 0, D3D11_MAP_READ, 0, &mapped);
 			if (hr != S_OK)
@@ -664,31 +773,84 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 		// staging buffer...
 		if (!self->staging_resource)
 		{
-			D3D11_TEXTURE2D_DESC texture2d_desc = {};
-			texture2d_desc.Width = self->width;
-			texture2d_desc.Height = self->height;
-			texture2d_desc.Usage = D3D11_USAGE_STAGING;
-			texture2d_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-			texture2d_desc.ArraySize = 1;
-			texture2d_desc.MipLevels = 1;
-			texture2d_desc.Format = DXGI_FORMAT_R8G8B8A8_UINT; // TODO fix it
-			texture2d_desc.SampleDesc.Count = 1;
+			D3D11_RESOURCE_DIMENSION dimension;
+			self->resource->GetType(&dimension);
+			HRESULT hr = E_FAIL;
+			if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE1D)
+			{
+				D3D11_TEXTURE1D_DESC texture1d_desc = {};
+				texture1d_desc.Width = self->width;
+				texture1d_desc.Usage = D3D11_USAGE_STAGING;
+				texture1d_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				texture1d_desc.ArraySize = 1;
+				texture1d_desc.MipLevels = 1;
+				texture1d_desc.Format = self->format;
+				hr = self->py_device->device->CreateTexture1D(&texture1d_desc, NULL, (ID3D11Texture1D**)&self->staging_resource);
+			}
+			else if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+			{
+				D3D11_TEXTURE2D_DESC texture2d_desc = {};
+				texture2d_desc.Width = self->width;
+				texture2d_desc.Height = self->height;
+				texture2d_desc.Usage = D3D11_USAGE_STAGING;
+				texture2d_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				texture2d_desc.ArraySize = 1;
+				texture2d_desc.MipLevels = 1;
+				texture2d_desc.Format = self->format;
+				texture2d_desc.SampleDesc.Count = 1;
+				hr = self->py_device->device->CreateTexture2D(&texture2d_desc, NULL, (ID3D11Texture2D**)&self->staging_resource);
+			}
+			else if (dimension == D3D11_RESOURCE_DIMENSION_TEXTURE3D)
+			{
+				D3D11_TEXTURE3D_DESC texture3d_desc = {};
+				texture3d_desc.Width = self->width;
+				texture3d_desc.Height = self->height;
+				texture3d_desc.Depth = self->depth;
+				texture3d_desc.Usage = D3D11_USAGE_STAGING;
+				texture3d_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+				texture3d_desc.MipLevels = 1;
+				texture3d_desc.Format = self->format;
+				hr = self->py_device->device->CreateTexture3D(&texture3d_desc, NULL, (ID3D11Texture3D**)&self->staging_resource);
+			}
 
-			HRESULT hr = self->py_device->device->CreateTexture2D(&texture2d_desc, NULL, (ID3D11Texture2D**)&self->staging_resource);
 			if (hr != S_OK)
 			{
 				return PyErr_Format(PyExc_Exception, "unable to create the staging texture");
 			}
 		}
 		self->py_device->context->CopyResource(self->staging_resource, self->resource);
+
 		D3D11_MAPPED_SUBRESOURCE mapped;
 		HRESULT hr = self->py_device->context->Map(self->staging_resource, 0, D3D11_MAP_READ, 0, &mapped);
 		if (hr != S_OK)
 		{
 			return PyErr_Format(PyExc_Exception, "unable to Map() staging buffer");
 		}
-		self->py_device->context->UpdateSubresource(dst_resource->resource, 0, NULL, mapped.pData, self->row_pitch, self->row_pitch * self->height);
+		char* data = (char*)mapped.pData;
+		if (mapped.RowPitch != self->row_pitch || mapped.DepthPitch != self->row_pitch * self->height)
+		{
+			data = (char*)PyMem_Malloc(self->row_pitch * self->height * self->depth);
+			if (!data)
+			{
+				return PyErr_Format(PyExc_MemoryError, "unable to create the staging data buffer");
+			}
+			char* src_offset = (char*)mapped.pData;
+			for (UINT depth = 0; depth < self->depth; depth++)
+			{
+				char* dst_offset = data + (self->row_pitch * self->height) * depth;
+				for (UINT height = 0; height < self->height; height++)
+				{
+					memcpy(dst_offset + (self->row_pitch * height), src_offset + (mapped.RowPitch * height), self->row_pitch);
+				}
+				src_offset += mapped.DepthPitch;
+			}
+		}
+		self->py_device->context->UpdateSubresource(dst_resource->resource, 0, NULL, data, self->row_pitch, self->row_pitch * self->depth);
 		self->py_device->context->Unmap(self->staging_resource, 0);
+		if (mapped.pData != data)
+		{
+			PyMem_Free(data);
+		}
 	}
 	else
 	{

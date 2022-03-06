@@ -1,12 +1,14 @@
 
 #include <d3d12.h>
-#include <dxgi1_3.h>
+#include <dxgi1_4.h>
 
 #include "compushady.h"
 
 void dxgi_init_pixel_formats();
 PyObject* d3d_generate_exception(PyObject* py_exc, HRESULT hr, const char* prefix);
 extern std::unordered_map<int, size_t> dxgi_pixels_sizes;
+
+static bool d3d12_debug = false;
 
 typedef struct d3d12_Device
 {
@@ -47,7 +49,9 @@ typedef struct d3d12_Swapchain
 {
 	PyObject_HEAD;
 	d3d12_Device* py_device;
-	IDXGISwapChain1* swapchain;
+	IDXGISwapChain3* swapchain;
+	DXGI_SWAP_CHAIN_DESC1 desc;
+	std::vector<ID3D12Resource*> backbuffers;
 } d3d12_Swapchain;
 
 typedef struct d3d12_Compute
@@ -135,7 +139,7 @@ static d3d12_Device* d3d12_Device_get_device(d3d12_Device* self)
 	}
 
 	D3D12_COMMAND_QUEUE_DESC queue_desc = {};
-	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+	queue_desc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT; // we need this for swapchain support (TODO: maybe allow the user to configure this or fallback to compute)
 
 	hr = self->device->CreateCommandQueue(&queue_desc, __uuidof(ID3D12CommandQueue), (void**)&self->queue);
 	if (hr != S_OK)
@@ -257,13 +261,19 @@ static PyTypeObject d3d12_Resource_Type = {
 
 static void d3d12_Swapchain_dealloc(d3d12_Swapchain* self)
 {
+	if (self->swapchain)
+	{
+		self->swapchain->Release();
+	}
+
 	Py_XDECREF(self->py_device);
+
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 static PyTypeObject d3d12_Swapchain_Type = {
 	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Swapchain", /* tp_name */
-	sizeof(d3d12_Device),                                              /* tp_basicsize */
+	sizeof(d3d12_Swapchain),                                              /* tp_basicsize */
 	0,                                                                 /* tp_itemsize */
 	(destructor)d3d12_Swapchain_dealloc,                                  /* tp_dealloc */
 	0,                                                                 /* tp_print */
@@ -286,6 +296,7 @@ static PyTypeObject d3d12_Swapchain_Type = {
 
 static void d3d12_Compute_dealloc(d3d12_Compute* self)
 {
+
 	if (self->pipeline)
 		self->pipeline->Release();
 	if (self->descriptor_heap)
@@ -321,10 +332,98 @@ static PyTypeObject d3d12_Compute_Type = {
 	"compushady d3d12 Compute",                                          /* tp_doc */
 };
 
+static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
+{
+	PyObject* py_resource;
+	uint32_t x;
+	uint32_t y;
+	if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
+		return NULL;
+
+	int ret = PyObject_IsInstance(py_resource, (PyObject*)&d3d12_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+	d3d12_Resource* src_resource = (d3d12_Resource*)py_resource;
+	if (src_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Texture object");
+	}
+
+	UINT index = self->swapchain->GetCurrentBackBufferIndex();
+
+	x = Py_MIN(x, self->desc.Width - 1);
+	y = Py_MIN(y, self->desc.Height - 1);
+
+	ID3D12Resource* backbuffer = self->backbuffers[index];
+
+	self->py_device->command_list->Reset(self->py_device->command_allocator, NULL);
+
+	D3D12_RESOURCE_BARRIER barriers[2] = {};
+	barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barriers[0].Transition.pResource = backbuffer;
+	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+	barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+	barriers[1].Transition.pResource = src_resource->resource;
+	barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+	barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+	self->py_device->command_list->ResourceBarrier(2, barriers);
+
+	D3D12_TEXTURE_COPY_LOCATION dest_location = {};
+	dest_location.pResource = backbuffer;
+	dest_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+	D3D12_TEXTURE_COPY_LOCATION src_location = {};
+	src_location.pResource = ((d3d12_Resource*)py_resource)->resource;
+	src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+
+	D3D12_BOX box = {};
+	box.right = Py_MIN(((d3d12_Resource*)py_resource)->footprint.Footprint.Width, self->desc.Width - x);
+	box.bottom = Py_MIN(((d3d12_Resource*)py_resource)->footprint.Footprint.Height, self->desc.Height - y);
+	box.back = 1;
+	self->py_device->command_list->CopyTextureRegion(&dest_location, x, y, 0, &src_location, &box);
+
+	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+	barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+	barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+	barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+
+	self->py_device->command_list->ResourceBarrier(2, barriers);
+
+	self->py_device->command_list->Close();
+
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+
+	HRESULT hr = self->swapchain->Present(1, 0);
+	if (hr != S_OK)
+	{
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to Present() Swapchain");
+	}
+
+	//backbuffer->Release();
+
+	Py_RETURN_NONE;
+}
+
+static PyMethodDef d3d12_Swapchain_methods[] = {
+	{"present", (PyCFunction)d3d12_Swapchain_present, METH_VARARGS, "Blit a texture resource to the Swapchain and present it"},
+	{NULL, NULL, 0, NULL} /* Sentinel */
+};
+
 static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* args)
 {
 	HWND window_handle;
-	int format;
+	DXGI_FORMAT format;
 	uint32_t num_buffers;
 	if (!PyArg_ParseTuple(args, "KiI", &window_handle, &format, &num_buffers))
 		return NULL;
@@ -341,23 +440,48 @@ static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* arg
 	COMPUSHADY_CLEAR(py_swapchain);
 	py_swapchain->py_device = py_device;
 	Py_INCREF(py_swapchain->py_device);
+	py_swapchain->backbuffers = {};
 
 	IDXGIFactory2* factory = NULL;
-	HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory2), (void**)&factory);
+	HRESULT hr = CreateDXGIFactory2(d3d12_debug ? DXGI_CREATE_FACTORY_DEBUG : 0, __uuidof(IDXGIFactory2), (void**)&factory);
 	if (hr != S_OK)
 	{
 		Py_DECREF(py_swapchain);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create IDXGIFactory2");
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to create IDXGIFactory2");
 	}
 
 	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc1 = {};
+	swap_chain_desc1.Format = format;
+	swap_chain_desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swap_chain_desc1.BufferCount = num_buffers;
+	swap_chain_desc1.Scaling = DXGI_SCALING_STRETCH;
+	swap_chain_desc1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swap_chain_desc1.SampleDesc.Count = 1;
+	swap_chain_desc1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
-	hr = factory->CreateSwapChainForHwnd(py_device->queue, window_handle, &swap_chain_desc1, NULL, NULL, &py_swapchain->swapchain);
+	hr = factory->CreateSwapChainForHwnd(py_device->queue, window_handle, &swap_chain_desc1, NULL, NULL, (IDXGISwapChain1**)&py_swapchain->swapchain);
 	if (hr != S_OK)
 	{
+		factory->Release();
 		Py_DECREF(py_swapchain);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Swapchain");
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to create Swapchain");
 	}
+
+	py_swapchain->swapchain->GetDesc1(&py_swapchain->desc);
+
+	py_swapchain->backbuffers.resize(py_swapchain->desc.BufferCount);
+	for (UINT i = 0; i < py_swapchain->desc.BufferCount; i++)
+	{
+		hr = py_swapchain->swapchain->GetBuffer(i, __uuidof(ID3D12Resource), (void**)&py_swapchain->backbuffers.data()[i]);
+		if (hr != S_OK)
+		{
+			factory->Release();
+			Py_DECREF(py_swapchain);
+			return d3d_generate_exception(PyExc_Exception, hr, "unable to get Swapchain buffer");
+		}
+	}
+
+	factory->Release();
 
 	return (PyObject*)py_swapchain;
 }
@@ -761,6 +885,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	d3d12_Compute* py_compute = (d3d12_Compute*)PyObject_New(d3d12_Compute, &d3d12_Compute_Type);
 	if (!py_compute)
 	{
+		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Compute");
 	}
 	COMPUSHADY_CLEAR(py_compute);
@@ -1223,7 +1348,7 @@ static PyMethodDef d3d12_Compute_methods[] = {
 static PyObject* d3d12_get_discovered_devices(PyObject* self)
 {
 	IDXGIFactory1* factory = NULL;
-	HRESULT hr = CreateDXGIFactory2(0, __uuidof(IDXGIFactory1), (void**)&factory);
+	HRESULT hr = CreateDXGIFactory2(d3d12_debug ? DXGI_CREATE_FACTORY_DEBUG : 0, __uuidof(IDXGIFactory1), (void**)&factory);
 	if (hr != S_OK)
 	{
 		return d3d_generate_exception(PyExc_Exception, hr, "unable to create IDXGIFactory1");
@@ -1239,6 +1364,7 @@ static PyObject* d3d12_get_discovered_devices(PyObject* self)
 		hr = adapter->GetDesc1(&adapter_desc);
 		if (hr != S_OK)
 		{
+			factory->Release();
 			Py_DECREF(py_list);
 			return d3d_generate_exception(PyExc_Exception, hr, "unable to call GetDesc1");
 		}
@@ -1246,9 +1372,11 @@ static PyObject* d3d12_get_discovered_devices(PyObject* self)
 		d3d12_Device* py_device = (d3d12_Device*)PyObject_New(d3d12_Device, &d3d12_Device_Type);
 		if (!py_device)
 		{
+			factory->Release();
 			Py_DECREF(py_list);
 			return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Device");
 		}
+		COMPUSHADY_CLEAR(py_device);
 
 		py_device->adapter = adapter; // keep the com refcnt as is given that EnumAdapters1 increases it
 		py_device->device = NULL;     // will be lazily allocated
@@ -1304,7 +1432,7 @@ PyInit_d3d12(void)
 		&compushady_backends_d3d12_module,
 		&d3d12_Device_Type, d3d12_Device_members, d3d12_Device_methods,
 		&d3d12_Resource_Type, d3d12_Resource_members, d3d12_Resource_methods,
-		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, /*d3d12_Swapchain_methods*/ NULL,
+		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, d3d12_Swapchain_methods,
 		&d3d12_Compute_Type, NULL, d3d12_Compute_methods
 	);
 
