@@ -43,3 +43,31 @@ staging_buffer.upload(b'\xff\x00\x00\xff') # first pixel as red
 # copy from the staging_buffer to the texture
 staging_buffer.copy_to(texture)
 ```
+
+### Reading back from GPU memory to system memory
+
+Now that you have your data in GPU memory, you can manipulate them using a compute shader but, before seeing this, we need to learn how to copy back data from the texture memory to our system ram. We need a buffer again (this time a readback one):
+
+```python
+from compushady import HEAP_READBACK, Buffer, Texture2D, HEAP_UPLOAD
+from compushady.formats import R8G8B8A8_UINT
+
+# creates a 8x8 texture in GPU with the classig RGBA 8 bit format
+texture = Texture2D(8, 8, R8G8B8A8_UINT)  
+# creates a staging buffer with the right size and in memory optimized for uploading data
+staging_buffer = Buffer(texture.size, HEAP_UPLOAD)
+# upload a bunch of pixels data into the staging_buffer
+staging_buffer.upload(b'\xff\x00\x00\xff') # first pixel as red
+# copy from the staging_buffer to the texture
+staging_buffer.copy_to(texture)
+
+# do something with the texture...
+
+# prepare the readback buffer
+readback_buffer = Buffer(texture.size, HEAP_READBACK)
+# copy from texture to the readback buffer
+texture.copy_to(readback_buffer)
+
+# get the data as a python bytes object (just the first 4 bytes)
+print(readback_buffer.readback())
+```
