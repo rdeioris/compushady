@@ -242,7 +242,7 @@ swapchain = None  # this ensures the swapchain is destroyed before the window
 glfw.terminate()
 ```
 
-## Accessive native GPU resources (advanced usage)
+## Accessing native GPU resources (advanced usage)
 
 ## Backends
 
