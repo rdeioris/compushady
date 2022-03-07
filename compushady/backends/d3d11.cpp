@@ -276,7 +276,14 @@ static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 	{
 	case COMPUSHADY_HEAP_DEFAULT:
 		buffer_desc.Usage = D3D11_USAGE_DEFAULT;
-		buffer_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		if (format == 0 && stride == 0 && size % 16 == 0) // constant buffer must be 16 bytes aligned
+		{
+			buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		}
+		else
+		{
+			buffer_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+		}
 		break;
 	case COMPUSHADY_HEAP_UPLOAD:
 		buffer_desc.Usage = D3D11_USAGE_STAGING;
@@ -564,6 +571,12 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 	py_compute->py_cbv = PyList_New(0);
 	py_compute->py_srv = PyList_New(0);
 	py_compute->py_uav = PyList_New(0);
+
+	for (d3d11_Resource* py_resource : cbv)
+	{
+		py_compute->cbv.push_back((ID3D11Buffer*)py_resource->resource);
+		PyList_Append(py_compute->py_cbv, (PyObject*)py_resource);
+	}
 
 	for (d3d11_Resource* py_resource : srv)
 	{
@@ -925,6 +938,7 @@ static PyObject* d3d11_Compute_dispatch(d3d11_Compute* self, PyObject* args)
 		return NULL;
 
 	self->py_device->context->CSSetShader(self->compute_shader, NULL, 0);
+	self->py_device->context->CSSetConstantBuffers(0, (UINT)self->cbv.size(), self->cbv.data());
 	self->py_device->context->CSSetShaderResources(0, (UINT)self->srv.size(), self->srv.data());
 	self->py_device->context->CSSetUnorderedAccessViews(0, (UINT)self->uav.size(), self->uav.data(), NULL);
 	self->py_device->context->Dispatch(x, y, z);

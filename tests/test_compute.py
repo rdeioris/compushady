@@ -103,3 +103,49 @@ class ComputeTests(unittest.TestCase):
         b0 = Buffer(u0.size, HEAP_READBACK)
         u0.copy_to(b0)
         self.assertEqual(b0.readback(4), b'\2\0\0\0')
+
+    def test_texture2d_copy_constant_buffer(self):
+        u0 = Texture2D(2, 2, R32_UINT)
+        b0 = Buffer(u0.size, HEAP_UPLOAD)
+        b0.upload(b'\1\0\0\0\2\0\0\0\3\0\0\0\4\0\0\0')
+        b1 = Buffer(u0.size)
+        b0.copy_to(b1)
+        shader = hlsl.compile("""
+
+        cbuffer input : register(b0)
+        {
+            uint a;
+            uint b;
+            uint c;
+            uint d;
+        };
+
+        RWTexture2D<uint> output : register(u0);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            uint value = a;
+            if (tid.x == 1 && tid.y == 0)
+            {
+                value = b;
+            }
+            else if (tid.x == 0 && tid.y == 1)
+            {
+                value = c;
+            }
+            else if (tid.x == 1 && tid.y == 1)
+            {
+                value = d;
+            }
+            output[tid.xy] = value;
+        }
+        """)
+        compute = Compute(shader, cbv=[b1], uav=[u0])
+        compute.dispatch(2, 2, 1)
+        b1 = Buffer(u0.size, HEAP_READBACK)
+        u0.copy_to(b1)
+        self.assertEqual(b1.readback(4), b'\1\0\0\0')
+        self.assertEqual(b1.readback(4, 4), b'\2\0\0\0')
+        self.assertEqual(b1.readback(4, u0.row_pitch), b'\3\0\0\0')
+        self.assertEqual(b1.readback(4, u0.row_pitch + 4), b'\4\0\0\0')
