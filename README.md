@@ -169,6 +169,10 @@ readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 
 ## compushady.Compute
 
+To build a Compute object (the one running the compute shader), you need (obviously) a shader blob (you can build it using the ```compushady.shaders.hlsl.compile``` function) and the resources (buffers and textures) you want to manage in the shader itself.
+
+compushady uses the DirectX12 naming: CBV (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), SRV (Shader Resource View) for buffer and textures you need to read in the shader, and UAV (Unordered Access View) for buffers and textures that need to be written by the shader.
+
 ## compushady.Swapchain
 
 While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
