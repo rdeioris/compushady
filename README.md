@@ -163,6 +163,10 @@ staging_buffer = compushady.Buffer(64, compushady.HEAP_UPLOAD)
 readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 ```
 
+Buffers created with HEAP_UPLOAD exposes the ```upload(data, offset=0)``` and ```upload2d(data, row_pitch, height, bytes_per_pixel)``` methods
+
+Bufers created with HEAP_READBACK exposes the ```readback(size=0, offset=0)```, ```readback2d(row_pitch, height, bytes_per_pixel)``` and ```readback_to_buffer(buffer, offset=0)``` methods
+
 ## compushady.Texture2D
 
 A Texture2D object is a bidimensional (width and height) texture available in the GPU memory. You can read it from your Compute shader or blit it to a Swapchain.
