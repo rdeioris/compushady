@@ -434,7 +434,7 @@ static PyObject* vulkan_instance_check()
 	app_info.applicationVersion = 0xDEADBEEF;
 	app_info.pEngineName = app_info.pApplicationName;
 	app_info.engineVersion = 0xDEADBEEF;
-	app_info.apiVersion = VK_API_VERSION_1_2;
+	app_info.apiVersion = VK_API_VERSION_1_1;
 
 	for (;;)
 	{
