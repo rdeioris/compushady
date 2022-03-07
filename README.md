@@ -195,7 +195,9 @@ texture = compushady.Texture3D(1024, 1024, 4, R8G8B8A8_UINT) # you can see it as
 
 To build a Compute object (the one running the compute shader), you need (obviously) a shader blob (you can build it using the ```compushady.shaders.hlsl.compile``` function) and the resources (buffers and textures) you want to manage in the shader itself.
 
-compushady uses the DirectX12 naming conventions: CBV (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), SRV (Shader Resource View) for buffer and textures you need to read in the shader, and UAV (Unordered Access View) for buffers and textures that need to be written by the shader.
+Note: while on DirectX based backends you need a DXIL/DXCB shader blob, on Vulkan any shader compiler able to generate SPIR-V blobs will be good for compushady (you can even precompile your shaders and store the SPIR-V blobs on files that you can load in compushady)
+
+compushady uses the DirectX12 naming conventions: ```CBV``` (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), ```SRV``` (Shader Resource View) for buffer and textures you need to read in the shader, and ```UAV``` (Unordered Access View) for buffers and textures that need to be written by the shader.
 
 ## compushady.Swapchain
 
