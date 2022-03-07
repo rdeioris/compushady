@@ -17,6 +17,8 @@ OpenGL, Metal and GLSL backends are expected to be released in the future.
 pip install compushady
 ```
 
+(if you are building from sources, be sure vulkan and x11 headers are installed, ```libvulkan-dev``` and ```libx11-dev``` on a debian based distribution)
+
 ### Enumerate compute devices
 
 ```py
