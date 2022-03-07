@@ -165,7 +165,27 @@ readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 
 ## compushady.Texture2D
 
+A Texture2D object is a bidimensional (width and height) texture available in the GPU memory. You can read it from your Compute shader or blit it to a Swapchain.
+For creating a Texture2D object you need to specify its width, height and the pixel format.
+
+```python
+from compushady import Texture2D
+from compushady.formats import R8G8B8A8_UINT
+texture = compushady.Texture2D(1024, 1024, R8G8B8A8_UINT)
+```
+
+Textures memory is always in GPU, so whenever you need to access (read or write) pixels/texels data of a texture from your main program, you need a staging or a readback buffer.
+
 ## compushady.Texture1D and compushady.Texture3D
+
+They are exactly like Texture2D but monodimensional (height=1) for Texture1D and tridimensional for Texture3D (you can see it as a group of slices, each one containing a bidimensional texture). For Texture3D you need to specify an additional parameter (the depth) representing the number of 'slices':
+
+
+```python
+from compushady import Texture3D
+from compushady.formats import R8G8B8A8_UINT
+texture = compushady.Texture3D(1024, 1024, 4, R8G8B8A8_UINT) # you can see it as 4 1024x1024 textures
+```
 
 ## compushady.Compute
 
