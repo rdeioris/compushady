@@ -176,9 +176,9 @@ compushady uses the DirectX12 naming: CBV (Constant Buffer View) for constant bu
 ## compushady.Swapchain
 
 While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
-For creating a swapchain you need to specify a window handle to attach to (this is operating system dependent), a format (generally B8G8R8A8_UNORM) and the number of buffers (generally 2).
+For creating a swapchain you need to specify a window handle to attach to (this is operating system dependent), a format (generally B8G8R8A8_UNORM) and the number of buffers (generally 2). When you want to 'blit' a texture to the swapchain you just call the ```compushady.Swapchain.present(texture, x=0, y=0)``` method (with x and y you can specify where to blit the texture). The Swapchain always waits for the VSYNC.
 
-This is an example of doing it using the glfw module (with a swpachain with 3 buffers):
+This is an example of doing it using the glfw module (with a swapchain with 3 buffers):
 
 ```python
 import glfw
@@ -215,3 +215,9 @@ swapchain = None  # this ensures the swapchain is destroyed before the window
 
 glfw.terminate()
 ```
+
+## Backends
+
+There are currently 3 backends for GPU access: vulkan, d3d12 and d3d11 (this last one is way slower than the others and included just for backward compatibility)
+
+There is one shader backend for HLSL (GLSL support is in progress), but (on vulkan) you can use any SPIR-V blob by passing it as the first argument of the ```compushady.Compute``` initializer.
