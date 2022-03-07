@@ -41,7 +41,7 @@ elif platform.system() == 'Linux':
     additional_files = ['backends/libdxcompiler.so.3.7']
 
 setup(name='compushady',
-      version='0.1',
+      version='0.2',
       description='The compushady GPU Compute module',
       author='Roberto De Ioris',
       author_email='roberto.deioris@gmail.com',
