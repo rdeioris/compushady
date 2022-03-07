@@ -156,3 +156,11 @@ buffer_in_gpu2 = compushady.Buffer(128, compushady.HEAP_DEFAULT)
 staging_buffer = compushady.Buffer(64, compushady.HEAP_UPLOAD)
 readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 ```
+
+## compushady.Texture2D
+
+## compushady.Texture1D and compushady.Texture3D
+
+## compushady.Compute
+
+## compushady.Swapchain
