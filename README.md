@@ -164,3 +164,11 @@ readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 ## compushady.Compute
 
 ## compushady.Swapchain
+
+While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
+For creating a swapchain you need to specify its format and a window handle to attach to (this is operating system dependent).
+
+This is an example of doing it using the glfw module:
+
+```python
+```
