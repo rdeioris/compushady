@@ -5,8 +5,11 @@
 #include <Windows.h>
 #include <vulkan/vulkan_win32.h>
 #else
+#ifdef __APPLE__
+#else
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
+#endif
 #endif
 
 #include <unordered_map>
@@ -414,9 +417,14 @@ static PyObject* vulkan_instance_check()
 		{
 			extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #else
+#ifdef __APPLE__
+		if ((0))
+		{
+#else
 		if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
 		{
 			extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+#endif
 #endif
 			continue;
 		}
@@ -1384,6 +1392,9 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		return PyErr_Format(PyExc_Exception, "Unable to create win32 surface");
 	}
 #else
+#ifdef __APPLE__
+	VkResult result;
+#else
 	if (!PyTuple_Check(py_window_handle))
 	{
 		Py_DECREF(py_swapchain);
@@ -1410,6 +1421,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		Py_DECREF(py_swapchain);
 		return PyErr_Format(PyExc_Exception, "Unable to create xlib surface");
 	}
+#endif
 #endif
 
 	VkBool32 supported;
