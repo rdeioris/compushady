@@ -132,11 +132,11 @@ As already seen you can get the list of devices using ```compushady.get_discover
 
 A compushady.Device object has the following fields:
 
-* name: a string with the device description
-* dedicated_video_memory: the amount (in bytes) of on-board (GPU) memory
-* dedicated_system_memory: the amount of system memory the OS has dedicated to the GPU (generally meaningful only on Windows)
-* shared_system_memory: the amount of system memory usable by the device (GPU)
-* vendor_id: an integer representing the vendor id code
-* device_id: an integer representing the device id code
-* is_hardware: True if it is a hardware devices (not an emulated one)
-* is_discrete: True if it is a discrete adapter (a dedicated GPU)
+* ```name```: a string with the device description
+* ```dedicated_video_memory```: the amount (in bytes) of on-board (GPU) memory
+* ```dedicated_system_memory```: the amount of system memory the OS has dedicated to the GPU (generally meaningful only on Windows)
+* ```shared_system_memory```: the amount of system memory usable by the device (GPU)
+* ```vendor_id```: an integer representing the vendor id code
+* ```device_id```: an integer representing the device id code
+* ```is_hardware```: True if it is a hardware devices (not an emulated one)
+* ```is_discrete```: True if it is a discrete adapter (a dedicated GPU)
