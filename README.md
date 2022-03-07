@@ -114,6 +114,29 @@ readback_buffer = Buffer(texture.size, HEAP_READBACK)
 # copy from texture to the readback buffer
 texture.copy_to(readback_buffer)
 
-# get the data as a python bytes object (just the first 4 bytes)
+# get the data as a python bytes object (just the first 8 bytes)
 print(readback_buffer.readback(8))
 ```
+
+## API
+
+This section covers the compushady API in detail (class by class)
+
+### compushady.Device
+
+This class represents a compute device (a GPU generally) on your system.
+
+There can be multiple devices on a system, by default compushady will always choose the one with most dedicated memory (but you are free to specify a device whenever you create a resource)
+
+As already seen you can get the list of devices using ```compushady.get_discovered_devices()``` or retrieve the current 'best' one with ```compushady.get_best_device()```
+
+A compushady.Device object has the following fields:
+
+* name: a string with the device description
+* dedicated_video_memory: the amount (in bytes) of on-board (GPU) memory
+* dedicated_system_memory: the amount of system memory the OS has dedicated to the GPU (generally meaningful only on Windows)
+* shared_system_memory: the amount of system memory usable by the device (GPU)
+* vendor_id: an integer representing the vendor id code
+* device_id: an integer representing the device id code
+* is_hardware: True if it is a hardware devices (not an emulated one)
+* is_discrete: True if it is a discrete adapter (a dedicated GPU)
