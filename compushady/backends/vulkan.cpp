@@ -156,6 +156,8 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
 		case(VK_IMAGE_TYPE_3D):
 			exception = Compushady_Texture3DError;
 			break;
+		default:
+			break;
 		}
 		PyErr_Format(exception, "unable to create vulkan Image");
 		return VK_NULL_HANDLE;
@@ -850,8 +852,6 @@ static PyObject* vulkan_Device_create_texture2d_from_native(vulkan_Device * self
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->image = (VkImage)texture_ptr;
-	VkImageSubresource image_subresource = {};
-	image_subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
 	VkImageViewCreateInfo image_view_create_info = {};
 	image_view_create_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
