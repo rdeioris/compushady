@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 #include <comdef.h>
+#include <d3dcompiler.h>
 #endif
 
 #include "dxcapi.h"
@@ -27,6 +28,39 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "s*Ui", &view, &py_entry_point, &shader_binary_type))
 		return NULL;
 
+#ifdef _WIN32
+	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_DXBC)
+	{
+		ID3DBlob* blob = NULL;
+		ID3D10Blob* error_messages = NULL;
+		const char* entry_point = PyUnicode_AsUTF8(py_entry_point);
+		HRESULT hr = D3DCompile(view.buf, view.len, NULL, NULL, NULL, entry_point, "cs_5_0", 0, 0, &blob, &error_messages);
+		if (hr != S_OK)
+		{
+			if (blob)
+				blob->Release();
+			if (error_messages)
+			{
+				PyObject* py_unicode_error = PyUnicode_FromStringAndSize((const char*)error_messages->GetBufferPointer(), error_messages->GetBufferSize());
+				PyObject* py_exc = PyErr_Format(PyExc_Exception, "%U", py_unicode_error);
+				Py_DECREF(py_unicode_error);
+
+				if (error_messages)
+					error_messages->Release();
+				return py_exc;
+			}
+			return dxc_generate_exception(hr, "unable to compile shader");
+		}
+		PyObject* py_compiled_blob = PyBytes_FromStringAndSize((const char*)blob->GetBufferPointer(), blob->GetBufferSize());
+		blob->Release();
+		if (error_messages)
+		{
+			error_messages->Release();
+		}
+		return py_compiled_blob;
+	}
+#endif
+
 	static DxcCreateInstanceProc dxcompiler_lib_create_instance_proc = NULL;
 
 	if (!dxcompiler_lib_create_instance_proc)
@@ -49,14 +83,14 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 	if (!dxcompiler_lib_create_instance_proc)
 	{
-		return PyErr_Format(PyExc_Exception, "Unable to load dxcompiler library");
+		return PyErr_Format(PyExc_Exception, "unable to load dxcompiler library");
 	}
 
 	IDxcLibrary* dxc_library;
 	HRESULT hr = dxcompiler_lib_create_instance_proc(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void**)&dxc_library);
 	if (hr != S_OK)
 	{
-		return dxc_generate_exception(hr, "Unable to create DXC library instance");
+		return dxc_generate_exception(hr, "unable to create DXC library instance");
 	}
 
 	// compile the shader
@@ -65,7 +99,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	if (hr != S_OK)
 	{
 		dxc_library->Release();
-		return dxc_generate_exception(hr, "Unable to create DXC compiler instance");
+		return dxc_generate_exception(hr, "unable to create DXC compiler instance");
 	}
 
 	IDxcBlobEncoding* blob_source;
@@ -75,7 +109,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	{
 		dxc_compiler->Release();
 		dxc_library->Release();
-		return dxc_generate_exception(hr, "Unable to create DXC blob");
+		return dxc_generate_exception(hr, "unable to create DXC blob");
 	}
 
 	wchar_t* entry_point = PyUnicode_AsWideCharString(py_entry_point, NULL);
@@ -100,7 +134,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	}
 
 	IDxcOperationResult* result;
-	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), arguments.size(), NULL, 0, NULL, &result);
+	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);

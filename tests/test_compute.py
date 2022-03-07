@@ -3,12 +3,12 @@ import struct
 import unittest
 from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK, Texture2D
 from compushady.shaders import hlsl
-from compushady.formats import R32G32B32A32_UINT, R16G16B16A16_FLOAT, R32_UINT
+from compushady.formats import R32G32_FLOAT, R32G32B32A32_UINT, R16G16B16A16_FLOAT, R32_UINT
 import compushady.config
 compushady.config.set_debug(True)
 
 
-class BufferTests(unittest.TestCase):
+class ComputeTests(unittest.TestCase):
 
     def test_simple_fill32(self):
         b0 = Buffer(32, format=R32G32B32A32_UINT)
@@ -64,15 +64,42 @@ class BufferTests(unittest.TestCase):
     def test_simple_texture2d_fill(self):
         u0 = Texture2D(2, 2, R32_UINT)
         shader = hlsl.compile("""
-        RWTexture2D<uint> texture : register(u0);
+
+        RWTexture2D<uint> output : register(u0);
+
         [numthreads(1, 1, 1)]
         void main(uint3 tid : SV_DispatchThreadID)
         {
-            texture[tid.xy] = 17;
+            output[tid.xy] = 17;
         }
         """)
         compute = Compute(shader, uav=[u0])
         compute.dispatch(1, 1, 1)
+        b0 = Buffer(u0.size)
+        b1 = Buffer(u0.size, HEAP_READBACK)
+        u0.copy_to(b0)
+        b0.copy_to(b1)
+        self.assertEqual(b1.readback(4), b'\x11\0\0\0')
+
+    def test_texture2d_copy2(self):
+        t0 = Texture2D(2, 2, R32_UINT)
+        b0 = Buffer(t0.size, HEAP_UPLOAD)
+        b0.upload(b'\1\0\0\0')
+        b0.copy_to(t0)
+        u0 = Texture2D(2, 2, R32_UINT)
+        shader = hlsl.compile("""
+
+        Texture2D<uint> input : register(t0);
+        RWTexture2D<uint> output : register(u0);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            output[tid.xy] = input[tid.xy] * 2;
+        }
+        """)
+        compute = Compute(shader, srv=[t0], uav=[u0])
+        compute.dispatch(1, 1, 1)
         b0 = Buffer(u0.size, HEAP_READBACK)
         u0.copy_to(b0)
-        self.assertEqual(b0.readback(4), b'\x11\0\0\0')
+        self.assertEqual(b0.readback(4), b'\2\0\0\0')

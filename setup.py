@@ -1,15 +1,16 @@
 from setuptools import setup, Extension
 import platform
 
+is_windows = platform.system() == 'Windows'
+
 backends = [Extension('compushady.backends.vulkan',
-                      libraries=['vulkan-1' if platform.system() ==
-                                 'Windows' else 'vulkan'],
+                      libraries=['vulkan-1' if is_windows else 'vulkan'],
                       sources=['compushady/backends/vulkan.cpp',
                                'compushady/backends/common.cpp']
                       )]
 
 
-if platform.system() == 'Windows':
+if is_windows:
     backends.append(Extension('compushady.backends.d3d12',
                               libraries=['dxgi', 'd3d12'],
                               sources=['compushady/backends/d3d12.cpp',
@@ -24,12 +25,13 @@ if platform.system() == 'Windows':
                               ))
 
 backends.append(Extension('compushady.backends.dxc',
+                          libraries=['d3dcompiler'] if is_windows else [],
                           sources=['compushady/backends/dxc.cpp',
                                    'compushady/backends/common.cpp']
                           ))
 
 additional_files = []
-if platform.system() == 'Windows':
+if is_windows:
     additional_files = ['backends/dxcompiler.dll', 'backends/dxil.dll']
 elif platform.system() == 'Linux':
     additional_files = ['backends/libdxcompiler.so.3.7']

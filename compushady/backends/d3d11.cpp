@@ -52,6 +52,13 @@ typedef struct d3d11_Compute
 {
 	PyObject_HEAD;
 	d3d11_Device* py_device;
+	ID3D11ComputeShader* compute_shader;
+	PyObject* py_cbv;
+	PyObject* py_srv;
+	PyObject* py_uav;
+	std::vector<ID3D11Buffer*> cbv;
+	std::vector<ID3D11ShaderResourceView*> srv;
+	std::vector<ID3D11UnorderedAccessView*> uav;
 } d3d11_Compute;
 
 static PyMemberDef d3d11_Device_members[] = {
@@ -192,6 +199,25 @@ static PyTypeObject d3d11_Swapchain_Type = {
 
 static void d3d11_Compute_dealloc(d3d11_Compute* self)
 {
+	for (ID3D11ShaderResourceView* srv : self->srv)
+	{
+		srv->Release();
+	}
+
+	for (ID3D11UnorderedAccessView* uav : self->uav)
+	{
+		uav->Release();
+	}
+
+	Py_XDECREF(self->py_cbv);
+	Py_XDECREF(self->py_srv);
+	Py_XDECREF(self->py_uav);
+
+	if (self->compute_shader)
+	{
+		self->compute_shader->Release();
+	}
+
 	Py_XDECREF(self->py_device);
 
 	Py_TYPE(self)->tp_free((PyObject*)self);
@@ -258,7 +284,7 @@ static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 		break;
 	case COMPUSHADY_HEAP_READBACK:
 		buffer_desc.Usage = D3D11_USAGE_STAGING;
-		buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+		buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE;
 		break;
 	default:
 		return PyErr_Format(PyExc_ValueError, "invalid heap type: %d", heap);
@@ -287,6 +313,8 @@ static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 	py_resource->resource = buffer;
 	py_resource->size = size;
 	py_resource->cpu_access_flags = buffer_desc.CPUAccessFlags;
+	py_resource->format = format;
+	py_resource->stride = stride;
 
 	return (PyObject*)py_resource;
 }
@@ -312,6 +340,7 @@ static PyObject* d3d11_Device_create_texture2d(d3d11_Device* self, PyObject* arg
 	texture2d_desc.Width = width;
 	texture2d_desc.Height = height;
 	texture2d_desc.Usage = D3D11_USAGE_DEFAULT;
+	texture2d_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 	texture2d_desc.ArraySize = 1;
 	texture2d_desc.MipLevels = 1;
 	texture2d_desc.Format = format;
@@ -365,6 +394,7 @@ static PyObject* d3d11_Device_create_texture1d(d3d11_Device* self, PyObject* arg
 	D3D11_TEXTURE1D_DESC texture1d_desc = {};
 	texture1d_desc.Width = width;
 	texture1d_desc.Usage = D3D11_USAGE_DEFAULT;
+	texture1d_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 	texture1d_desc.ArraySize = 1;
 	texture1d_desc.MipLevels = 1;
 	texture1d_desc.Format = format;
@@ -421,6 +451,7 @@ static PyObject* d3d11_Device_create_texture3d(d3d11_Device* self, PyObject* arg
 	texture3d_desc.Height = height;
 	texture3d_desc.Depth = depth;
 	texture3d_desc.Usage = D3D11_USAGE_DEFAULT;
+	texture3d_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
 	texture3d_desc.MipLevels = 1;
 	texture3d_desc.Format = format;
 
@@ -499,82 +530,14 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 	if (!py_device)
 		return NULL;
 
-	if (py_cbv)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_cbv);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d11_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			//cbv.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
+	std::vector<d3d11_Resource*> cbv;
+	std::vector<d3d11_Resource*> srv;
+	std::vector<d3d11_Resource*> uav;
 
-	if (py_srv)
+	if (!compushady_check_descriptors(&d3d11_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
 	{
-		PyObject* py_iter = PyObject_GetIter(py_srv);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d11_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			//srv.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
-
-	if (py_uav)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_uav);
-		if (!py_iter)
-			return NULL;
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)&d3d11_Resource_Type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return NULL;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-			}
-			//uav.push_back((d3d12_Resource*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
+		PyBuffer_Release(&view);
+		return NULL;
 	}
 
 	d3d11_Compute* py_compute = (d3d11_Compute*)PyObject_New(d3d11_Compute, &d3d11_Compute_Type);
@@ -586,11 +549,68 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 	py_compute->py_device = py_device;
 	Py_INCREF(py_compute->py_device);
 
-	ID3D11ComputeShader* compute_shader;
-	py_device->device->CreateComputeShader(view.buf, view.len, NULL, &compute_shader);
+	HRESULT hr = py_device->device->CreateComputeShader(view.buf, view.len, NULL, &py_compute->compute_shader);
+	PyBuffer_Release(&view);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_compute);
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to create Compute Shader");
+	}
 
-	self->context->CSSetShader(compute_shader, NULL, 0);
-	//self->context->CSSetConstantBuffers(0, );
+	py_compute->cbv = {};
+	py_compute->srv = {};
+	py_compute->uav = {};
+
+	py_compute->py_cbv = PyList_New(0);
+	py_compute->py_srv = PyList_New(0);
+	py_compute->py_uav = PyList_New(0);
+
+	for (d3d11_Resource* py_resource : srv)
+	{
+		D3D11_SHADER_RESOURCE_VIEW_DESC* srv_desc_ptr = NULL;
+		D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+		bool is_buffer = py_resource->width == 0 && py_resource->height == 0 && py_resource->depth == 0;
+		if (is_buffer && (py_resource->format > 0 || py_resource->stride > 0))
+		{
+			srv_desc.Format = py_resource->format;
+			srv_desc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+			srv_desc.Buffer.NumElements = (UINT)(py_resource->stride > 0 ? py_resource->size / py_resource->stride : py_resource->size / dxgi_pixels_sizes[py_resource->format]);
+			srv_desc_ptr = &srv_desc;
+		}
+		ID3D11ShaderResourceView* new_srv;
+		HRESULT hr = py_device->device->CreateShaderResourceView(py_resource->resource, srv_desc_ptr, &new_srv);
+		if (hr != S_OK)
+		{
+			Py_DECREF(py_compute);
+			return d3d_generate_exception(PyExc_Exception, hr, "unable to create Shader Resource View");
+		}
+		py_compute->srv.push_back(new_srv);
+		PyList_Append(py_compute->py_srv, (PyObject*)py_resource);
+	}
+
+	for (d3d11_Resource* py_resource : uav)
+	{
+		D3D11_UNORDERED_ACCESS_VIEW_DESC* uav_desc_ptr = NULL;
+		D3D11_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+		bool is_buffer = py_resource->width == 0 && py_resource->height == 0 && py_resource->depth == 0;
+		if (is_buffer && (py_resource->format > 0 || py_resource->stride > 0))
+		{
+			uav_desc.Format = py_resource->format;
+			uav_desc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+			uav_desc.Buffer.NumElements = (UINT)(py_resource->stride > 0 ? py_resource->size / py_resource->stride : py_resource->size / dxgi_pixels_sizes[py_resource->format]);
+			uav_desc_ptr = &uav_desc;
+		}
+		ID3D11UnorderedAccessView* new_uav;
+		HRESULT hr = py_device->device->CreateUnorderedAccessView(py_resource->resource, uav_desc_ptr, &new_uav);
+		if (hr != S_OK)
+		{
+			Py_DECREF(py_compute);
+			return d3d_generate_exception(PyExc_Exception, hr, "unable to create Unordered Access View");
+		}
+		py_compute->uav.push_back(new_uav);
+		PyList_Append(py_compute->py_uav, (PyObject*)py_resource);
+	}
+
 	return (PyObject*)py_compute;
 }
 
@@ -832,6 +852,7 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 			data = (char*)PyMem_Malloc(self->row_pitch * self->height * self->depth);
 			if (!data)
 			{
+				self->py_device->context->Unmap(self->staging_resource, 0);
 				return PyErr_Format(PyExc_MemoryError, "unable to create the staging data buffer");
 			}
 			char* src_offset = (char*)mapped.pData;
@@ -845,7 +866,27 @@ static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 				src_offset += mapped.DepthPitch;
 			}
 		}
-		self->py_device->context->UpdateSubresource(dst_resource->resource, 0, NULL, data, self->row_pitch, self->row_pitch * self->depth);
+
+		if (dst_resource->cpu_access_flags & D3D11_CPU_ACCESS_WRITE)
+		{
+			D3D11_MAPPED_SUBRESOURCE write_mapped;
+			hr = self->py_device->context->Map(dst_resource->resource, 0, D3D11_MAP_WRITE, 0, &write_mapped);
+			if (hr != S_OK)
+			{
+				self->py_device->context->Unmap(self->staging_resource, 0);
+				if (mapped.pData != data)
+				{
+					PyMem_Free(data);
+				}
+				return PyErr_Format(PyExc_MemoryError, "unable to Map() destination buffer");
+			}
+			memcpy(write_mapped.pData, data, Py_MIN(dst_resource->size, self->row_pitch * self->height * self->depth));
+			self->py_device->context->Unmap(dst_resource->resource, 0);
+		}
+		else
+		{
+			self->py_device->context->UpdateSubresource(dst_resource->resource, 0, NULL, data, self->row_pitch, self->row_pitch * self->depth);
+		}
 		self->py_device->context->Unmap(self->staging_resource, 0);
 		if (mapped.pData != data)
 		{
@@ -883,6 +924,9 @@ static PyObject* d3d11_Compute_dispatch(d3d11_Compute* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
 		return NULL;
 
+	self->py_device->context->CSSetShader(self->compute_shader, NULL, 0);
+	self->py_device->context->CSSetShaderResources(0, (UINT)self->srv.size(), self->srv.data());
+	self->py_device->context->CSSetUnorderedAccessViews(0, (UINT)self->uav.size(), self->uav.data(), NULL);
 	self->py_device->context->Dispatch(x, y, z);
 
 	Py_RETURN_NONE;
@@ -922,8 +966,9 @@ static PyObject* d3d11_get_discovered_devices(PyObject* self)
 			Py_DECREF(py_list);
 			return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d11 Device");
 		}
+		COMPUSHADY_CLEAR(py_device);
 
-		py_device->adapter = adapter; // kepp the com refcnt as is given that EnumAdapters1 increases it
+		py_device->adapter = adapter; // keep the com refcnt as is given that EnumAdapters1 increases it
 		py_device->device = NULL;     // will be lazily allocated
 		py_device->name = PyUnicode_FromWideChar(adapter_desc.Description, -1);
 		py_device->dedicated_video_memory = adapter_desc.DedicatedVideoMemory;
@@ -951,7 +996,7 @@ static PyObject* d3d11_enable_debug(PyObject* self)
 
 static PyObject* d3d11_get_shader_binary_type(PyObject* self)
 {
-	return PyLong_FromLong(COMPUSHADY_SHADER_BINARY_TYPE_DXIL);
+	return PyLong_FromLong(COMPUSHADY_SHADER_BINARY_TYPE_DXBC);
 }
 
 static PyMethodDef compushady_backends_d3d11_methods[] = {
