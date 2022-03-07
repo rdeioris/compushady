@@ -140,3 +140,19 @@ A compushady.Device object has the following fields:
 * ```device_id```: an integer representing the device id code
 * ```is_hardware```: True if it is a hardware devices (not an emulated one)
 * ```is_discrete```: True if it is a discrete adapter (a dedicated GPU)
+
+## compushady.Buffer
+
+This class represents a resource accessible by the GPU that can be in system RAM or GPU dedicated memory.
+Buffers are generic blobs of data that you can use as a plain storage for your compute shaders or staging/readback buffers when dealing with textures.
+
+When you create a Buffer you need to specify its dimension (in bytes) and (optionally) the type of memory he needs to use: HEAP_DEFAULT (GPU memory), HEAP_UPLOAD (system memory optimized for writing) or HEAP_READBACK (system memory optimized for reading)
+
+```python
+import compushady
+
+buffer_in_gpu = compushady.Buffer(64)
+buffer_in_gpu2 = compushady.Buffer(128, compushady.HEAP_DEFAULT)
+staging_buffer = compushady.Buffer(64, compushady.HEAP_UPLOAD)
+readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
+```
