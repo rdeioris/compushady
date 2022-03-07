@@ -21,7 +21,7 @@ RWTexture2D<float4> target : register(u0);
 float shot_ray(float2 xy)
 {
     return 1;
- }
+}
 
 [numthreads(8,8,1)]
 void main(int3 tid : SV_DispatchThreadID)
