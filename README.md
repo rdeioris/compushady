@@ -69,5 +69,51 @@ readback_buffer = Buffer(texture.size, HEAP_READBACK)
 texture.copy_to(readback_buffer)
 
 # get the data as a python bytes object (just the first 4 bytes)
-print(readback_buffer.readback())
+print(readback_buffer.readback(4))
+```
+
+### Your first compute shader
+
+We are going to run code in the GPU!
+We will start with simple logic: we will just swap the red channel with the green one.
+For doing this we need to write an HLSL shader that will take our texture as an input/output object:
+
+```python
+from compushady import HEAP_READBACK, Buffer, Texture2D, HEAP_UPLOAD, Compute
+from compushady.formats import R8G8B8A8_UINT
+from compushady.shaders import hlsl
+
+# creates a 8x8 texture in GPU with the classig RGBA 8 bit format
+texture = Texture2D(8, 8, R8G8B8A8_UINT)
+# creates a staging buffer with the right size and in memory optimized for uploading data
+staging_buffer = Buffer(texture.size, HEAP_UPLOAD)
+# upload a bunch of pixels data into the staging_buffer
+staging_buffer.upload(b'\xff\x00\x00\xff')  # first pixel as red
+# copy from the staging_buffer to the texture
+staging_buffer.copy_to(texture)
+
+# do something with the texture...
+
+shader = """
+RWTexture2D<uint4> texture : register(u0);
+[numthreads(2, 2, 1)]
+void main(int3 tid : SV_DispatchThreadID)
+{
+    uint4 color = texture[tid.xy];
+    uint red = color.r;
+    color.r = color.g;
+    color.g = red;
+    texture[tid.xy] = color;
+}
+"""
+compute = Compute(hlsl.compile(shader), uav=[texture])
+compute.dispatch(texture.width // 2, texture.height // 2, 1)
+
+# prepare the readback buffer
+readback_buffer = Buffer(texture.size, HEAP_READBACK)
+# copy from texture to the readback buffer
+texture.copy_to(readback_buffer)
+
+# get the data as a python bytes object (just the first 4 bytes)
+print(readback_buffer.readback(8))
 ```
