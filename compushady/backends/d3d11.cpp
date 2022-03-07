@@ -1,5 +1,5 @@
 #include <d3d11.h>
-#include <dxgi1_3.h>
+#include <dxgi1_4.h>
 
 #include "compushady.h"
 
@@ -45,7 +45,9 @@ typedef struct d3d11_Swapchain
 {
 	PyObject_HEAD;
 	d3d11_Device* py_device;
-	IDXGISwapChain1* swapchain;
+	IDXGISwapChain3* swapchain;
+	DXGI_SWAP_CHAIN_DESC1 desc;
+	ID3D11Resource* backbuffer;
 } d3d11_Swapchain;
 
 typedef struct d3d11_Compute
@@ -170,7 +172,13 @@ static PyTypeObject d3d11_Resource_Type = {
 
 static void d3d11_Swapchain_dealloc(d3d11_Swapchain* self)
 {
+	if (self->swapchain)
+	{
+		self->swapchain->Release();
+	}
+
 	Py_XDECREF(self->py_device);
+
 	Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
@@ -245,6 +253,56 @@ static PyTypeObject d3d11_Compute_Type = {
 	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
 	"compushady d3d11 Compute",                                          /* tp_doc */
 };
+
+static PyObject* d3d11_Swapchain_present(d3d11_Swapchain* self, PyObject* args)
+{
+	PyObject* py_resource;
+	uint32_t x;
+	uint32_t y;
+	if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
+		return NULL;
+
+	int ret = PyObject_IsInstance(py_resource, (PyObject*)&d3d11_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+	d3d11_Resource* src_resource = (d3d11_Resource*)py_resource;
+	if (src_resource->width == 0 || src_resource->height == 0 || src_resource->depth == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Texture object");
+	}
+
+	UINT index = self->swapchain->GetCurrentBackBufferIndex();
+
+	x = Py_MIN(x, self->desc.Width - 1);
+	y = Py_MIN(y, self->desc.Height - 1);
+
+
+	D3D11_BOX box = {};
+	box.right = Py_MIN(src_resource->width, self->desc.Width - x);
+	box.bottom = Py_MIN(src_resource->height, self->desc.Height - y);
+	box.back = 1;
+	self->py_device->context->CopySubresourceRegion(self->backbuffer, 0, x, y, 0, src_resource->resource, 0, &box);
+
+	HRESULT hr = self->swapchain->Present(1, 0);
+	if (hr != S_OK)
+	{
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to Present() Swapchain");
+	}
+
+	Py_RETURN_NONE;
+}
+
+static PyMethodDef d3d11_Swapchain_methods[] = {
+	{"present", (PyCFunction)d3d11_Swapchain_present, METH_VARARGS, "Blit a texture resource to the Swapchain and present it"},
+	{NULL, NULL, 0, NULL} /* Sentinel */
+};
+
 
 static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 {
@@ -491,6 +549,48 @@ static PyObject* d3d11_Device_create_texture3d(d3d11_Device* self, PyObject* arg
 	return (PyObject*)py_resource;
 }
 
+static PyObject* d3d11_Device_create_texture2d_from_native(d3d11_Device* self, PyObject* args)
+{
+	unsigned long long texture_ptr;
+	uint32_t width;
+	uint32_t height;
+	DXGI_FORMAT format;
+	if (!PyArg_ParseTuple(args, "KIIi", &texture_ptr, &width, &height, &format))
+		return NULL;
+
+	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+	}
+
+	ID3D11Resource* resource = (ID3D11Resource*)texture_ptr;
+	D3D11_RESOURCE_DIMENSION dimension;
+	resource->GetType(&dimension);
+	if (dimension != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+	{
+		return PyErr_Format(PyExc_ValueError, "supplied resource has the wrong Dimension (expected: D3D11_RESOURCE_DIMENSION_TEXTURE2D)");
+	}
+	d3d11_Resource* py_resource = (d3d11_Resource*)PyObject_New(d3d11_Resource, &d3d11_Resource_Type);
+	if (!py_resource)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Resource");
+	}
+	COMPUSHADY_CLEAR(py_resource);
+	py_resource->py_device = self;
+	Py_INCREF(py_resource->py_device);
+
+	py_resource->resource = resource;
+	py_resource->resource->AddRef(); // keep the resource alive after python GC
+	py_resource->width = width;
+	py_resource->height = height;
+	py_resource->depth = 1;
+	py_resource->row_pitch = (UINT)(width * dxgi_pixels_sizes[format]);
+	py_resource->size = py_resource->row_pitch * height;
+	py_resource->format = format;
+
+	return (PyObject*)py_resource;
+}
+
 static PyObject* d3d11_Device_get_debug_messages(d3d11_Device* self, PyObject* args)
 {
 	d3d11_Device* py_device = d3d11_Device_get_device(self);
@@ -627,13 +727,76 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 	return (PyObject*)py_compute;
 }
 
+static PyObject* d3d11_Device_create_swapchain(d3d11_Device* self, PyObject* args)
+{
+	HWND window_handle;
+	DXGI_FORMAT format;
+	uint32_t num_buffers;
+	if (!PyArg_ParseTuple(args, "KiI", &window_handle, &format, &num_buffers))
+		return NULL;
+
+	d3d11_Device* py_device = d3d11_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	d3d11_Swapchain* py_swapchain = (d3d11_Swapchain*)PyObject_New(d3d11_Swapchain, &d3d11_Swapchain_Type);
+	if (!py_swapchain)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d11 Swapchain");
+	}
+	COMPUSHADY_CLEAR(py_swapchain);
+	py_swapchain->py_device = py_device;
+	Py_INCREF(py_swapchain->py_device);
+
+	IDXGIFactory2* factory = NULL;
+	HRESULT hr = CreateDXGIFactory2(d3d11_debug ? DXGI_CREATE_FACTORY_DEBUG : 0, __uuidof(IDXGIFactory2), (void**)&factory);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_swapchain);
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to create IDXGIFactory2");
+	}
+
+	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc1 = {};
+	swap_chain_desc1.Format = format;
+	swap_chain_desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+	swap_chain_desc1.BufferCount = num_buffers;
+	swap_chain_desc1.Scaling = DXGI_SCALING_STRETCH;
+	swap_chain_desc1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	swap_chain_desc1.SampleDesc.Count = 1;
+	swap_chain_desc1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+
+	hr = factory->CreateSwapChainForHwnd(py_device->device, window_handle, &swap_chain_desc1, NULL, NULL, (IDXGISwapChain1**)&py_swapchain->swapchain);
+	if (hr != S_OK)
+	{
+		factory->Release();
+		Py_DECREF(py_swapchain);
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to create Swapchain");
+	}
+
+	py_swapchain->swapchain->GetDesc1(&py_swapchain->desc);
+
+	hr = py_swapchain->swapchain->GetBuffer(0, __uuidof(ID3D11Resource), (void**)&py_swapchain->backbuffer);
+	if (hr != S_OK)
+	{
+		factory->Release();
+		Py_DECREF(py_swapchain);
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to get Swapchain buffer");
+	}
+
+	factory->Release();
+
+	return (PyObject*)py_swapchain;
+}
+
 static PyMethodDef d3d11_Device_methods[] = {
 	{"create_buffer", (PyCFunction)d3d11_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
 	{"create_texture2d", (PyCFunction)d3d11_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
 	{"create_texture1d", (PyCFunction)d3d11_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
 	{"create_texture3d", (PyCFunction)d3d11_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
+	{"create_texture2d_from_native", (PyCFunction)d3d11_Device_create_texture2d_from_native, METH_VARARGS, "Creates a Texture2D object from a low level pointer"},
 	{"get_debug_messages", (PyCFunction)d3d11_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)d3d11_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
+	{"create_swapchain", (PyCFunction)d3d11_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -1034,7 +1197,7 @@ PyInit_d3d11(void)
 		&compushady_backends_d3d11_module,
 		&d3d11_Device_Type, d3d11_Device_members, d3d11_Device_methods,
 		&d3d11_Resource_Type, d3d11_Resource_members, d3d11_Resource_methods,
-		&d3d11_Swapchain_Type, /*d3d11_Swapchain_members*/ NULL, /*d3d11_Swapchain_methods*/ NULL,
+		&d3d11_Swapchain_Type, /*d3d11_Swapchain_members*/ NULL, d3d11_Swapchain_methods,
 		&d3d11_Compute_Type, NULL, d3d11_Compute_methods
 	);
 

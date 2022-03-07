@@ -410,8 +410,6 @@ static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
 		return d3d_generate_exception(PyExc_Exception, hr, "unable to Present() Swapchain");
 	}
 
-	//backbuffer->Release();
-
 	Py_RETURN_NONE;
 }
 
@@ -759,8 +757,11 @@ static PyObject* d3d12_Device_create_texture3d(d3d12_Device* self, PyObject* arg
 static PyObject* d3d12_Device_create_texture2d_from_native(d3d12_Device* self, PyObject* args)
 {
 	unsigned long long texture_ptr;
-	if (!PyArg_ParseTuple(args, "K", &texture_ptr))
-		return NULL;
+	uint32_t width;
+	uint32_t height;
+	DXGI_FORMAT format;
+	if (!PyArg_ParseTuple(args, "KIIi", &texture_ptr, &width, &height, &format))
+		return NULL;;
 
 	ID3D12Resource1* resource = (ID3D12Resource1*)texture_ptr;
 	D3D12_RESOURCE_DESC resource_desc = resource->GetDesc();
