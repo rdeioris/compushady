@@ -36,7 +36,7 @@ if is_mac:
     backends.append(Extension('compushady.backends.metal',
                               depends=['compushady/backends/compushady.h'],
                               sources=['compushady/backends/metal.m'],
-                              extra_compile_args=['-ObjC++'],
+                              extra_compile_args=['-ObjC++', '-Wno-unguarded-availability-new', '-Wno-objc-multiple-method-names'],
                               extra_link_args=['-Wl,-framework,MetalKit'],
                               ))
 
