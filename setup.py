@@ -9,6 +9,7 @@ backends = [Extension('compushady.backends.vulkan',
                       sources=['compushady/backends/vulkan.cpp',
                                'compushady/backends/common.cpp'],
                       extra_compile_args=['-std=c++14'] if not is_windows else [],
+                      extra_link_args=['-Wl,-rpath,/usr/local/lib/'] if platform.system() == 'Darwin' else [],
                       )]
 
 
