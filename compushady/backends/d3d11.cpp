@@ -894,6 +894,33 @@ static PyObject* d3d11_Resource_readback(d3d11_Resource* self, PyObject* args)
 	return py_bytes;
 }
 
+static PyObject* d3d11_Resource_readback_to_buffer(d3d11_Resource* self, PyObject* args)
+{
+	Py_buffer view;
+	SIZE_T offset = 0;
+	if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
+		return NULL;
+
+	if (offset > self->size)
+	{
+		PyBuffer_Release(&view);
+		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", offset, self->size);
+	}
+
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	HRESULT hr = self->py_device->context->Map(self->resource, 0, D3D11_MAP_READ, 0, &mapped);
+	if (hr != S_OK)
+	{
+		PyBuffer_Release(&view);
+		return d3d_generate_exception(PyExc_Exception, hr, "unable to Map() ID3D11Resource");
+	}
+
+	memcpy(view.buf, (char*)mapped.pData + offset, Py_MIN((SIZE_T)view.len, self->size - offset));
+
+	self->py_device->context->Unmap(self->resource, 0);
+	Py_RETURN_NONE;
+}
+
 static PyObject* d3d11_Resource_copy_to(d3d11_Resource* self, PyObject* args)
 {
 	PyObject* py_destination;
@@ -1081,6 +1108,7 @@ static PyMethodDef d3d11_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d11_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"upload2d", (PyCFunction)d3d11_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
 	{"readback", (PyCFunction)d3d11_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
+	{"readback_to_buffer", (PyCFunction)d3d11_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
 	{"copy_to", (PyCFunction)d3d11_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };

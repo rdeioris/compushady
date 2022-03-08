@@ -1176,6 +1176,7 @@ static PyObject* d3d12_Resource_readback_to_buffer(d3d12_Resource* self, PyObjec
 
 	if (offset > self->size)
 	{
+		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", offset, self->size);
 	}
 

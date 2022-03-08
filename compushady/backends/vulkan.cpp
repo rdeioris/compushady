@@ -1701,6 +1701,35 @@ static PyObject* vulkan_Resource_readback(vulkan_Resource * self, PyObject * arg
 	return py_bytes;
 }
 
+static PyObject* vulkan_Resource_readback_to_buffer(vulkan_Resource* self, PyObject* args)
+{
+	Py_buffer view;
+	SIZE_T offset = 0;
+	if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
+		return NULL;
+
+	if (offset > self->size)
+	{
+		PyBuffer_Release(&view);
+		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", offset, self->size);
+	}
+
+	char* mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	if (result != VK_SUCCESS)
+	{
+		PyBuffer_Release(&view);
+		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
+	}
+
+	memcpy(view.buf, mapped_data + offset, Py_MIN((SIZE_T)view.len, self->size - offset));
+
+	vkUnmapMemory(self->py_device->device, self->memory);
+
+	PyBuffer_Release(&view);
+	Py_RETURN_NONE;
+}
+
 static PyObject* vulkan_Resource_readback2d(vulkan_Resource * self, PyObject * args)
 {
 	uint32_t pitch;
@@ -1872,7 +1901,7 @@ static PyMethodDef vulkan_Resource_methods[] = {
 	{"upload2d", (PyCFunction)vulkan_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
 	{"readback", (PyCFunction)vulkan_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
 	{"readback2d", (PyCFunction)vulkan_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
-	/*{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback into a buffer from a GPU Resource"},*/
+	{"readback_to_buffer", (PyCFunction)vulkan_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
 	{"copy_to", (PyCFunction)vulkan_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
