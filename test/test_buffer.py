@@ -37,3 +37,12 @@ class BufferTests(unittest.TestCase):
         b1.copy_to(b2)
         b1.copy_to(b3)
         self.assertEqual(b3.readback(), b'hello!!!')
+
+    def test_simple_readback_to_buffer(self):
+        b0 = Buffer(8, HEAP_UPLOAD)
+        b1 = Buffer(8, HEAP_READBACK)
+        b0.upload(b'hello!!!')
+        b0.copy_to(b1)
+        data = bytearray(8)
+        b1.readback(data)
+        self.assertEqual(data, b'hello!!!')

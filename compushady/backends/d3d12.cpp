@@ -1171,7 +1171,7 @@ static PyObject* d3d12_Resource_readback_to_buffer(d3d12_Resource* self, PyObjec
 {
 	Py_buffer view;
 	SIZE_T offset = 0;
-	if (!PyArg_ParseTuple(args, "y*|K", &view, &offset))
+	if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
 		return NULL;
 
 	if (offset > self->size)
@@ -1314,7 +1314,7 @@ static PyMethodDef d3d12_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d12_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"upload2d", (PyCFunction)d3d12_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
 	{"readback", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
-	{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
+	{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
 	{"readback2d", (PyCFunction)d3d12_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	{"copy_to", (PyCFunction)d3d12_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
