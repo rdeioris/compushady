@@ -521,8 +521,11 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device * self)
 			create_info.pQueueCreateInfos = &queue_create_info;
 			create_info.queueCreateInfoCount = 1;
 			std::vector<const char*> extensions;
-			// if (vulkan_supports_swapchain)
-			extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+			if (vulkan_supports_swapchain)
+				extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#ifdef __APPLE__
+			extensions.push_back("VK_KHR_portability_subset");
+#endif
 			std::vector<const char*> layers;
 			layers.push_back("VK_LAYER_KHRONOS_validation");
 			create_info.enabledExtensionCount = (uint32_t)extensions.size();

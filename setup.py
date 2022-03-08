@@ -7,7 +7,8 @@ backends = [Extension('compushady.backends.vulkan',
                       libraries=['vulkan-1' if is_windows else 'vulkan'],
                       depends=['compushady/backends/compushady.h'],
                       sources=['compushady/backends/vulkan.cpp',
-                               'compushady/backends/common.cpp']
+                               'compushady/backends/common.cpp'],
+                      extra_compile_args=['-std=c++14'] if not is_windows else [],
                       )]
 
 
@@ -31,7 +32,8 @@ backends.append(Extension('compushady.backends.dxc',
                           libraries=['d3dcompiler'] if is_windows else [],
                           depends=['compushady/backends/compushady.h'],
                           sources=['compushady/backends/dxc.cpp',
-                                   'compushady/backends/common.cpp']
+                                   'compushady/backends/common.cpp'],
+                          extra_compile_args=['-std=c++14'] if not is_windows else [],
                           ))
 
 additional_files = []
@@ -39,6 +41,8 @@ if is_windows:
     additional_files = ['backends/dxcompiler.dll', 'backends/dxil.dll']
 elif platform.system() == 'Linux':
     additional_files = ['backends/libdxcompiler.so.3.7']
+elif platform.system() == 'Darwin':
+    additional_files = ['backends/libdxcompiler.3.7.dylib']
 
 setup(name='compushady',
       version='0.2',
