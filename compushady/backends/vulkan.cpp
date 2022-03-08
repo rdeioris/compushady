@@ -1704,7 +1704,7 @@ static PyObject* vulkan_Resource_readback(vulkan_Resource * self, PyObject * arg
 static PyObject* vulkan_Resource_readback_to_buffer(vulkan_Resource* self, PyObject* args)
 {
 	Py_buffer view;
-	SIZE_T offset = 0;
+	size_t offset = 0;
 	if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
 		return NULL;
 
@@ -1722,7 +1722,7 @@ static PyObject* vulkan_Resource_readback_to_buffer(vulkan_Resource* self, PyObj
 		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
 	}
 
-	memcpy(view.buf, mapped_data + offset, Py_MIN((SIZE_T)view.len, self->size - offset));
+	memcpy(view.buf, mapped_data + offset, Py_MIN((size_t)view.len, self->size - offset));
 
 	vkUnmapMemory(self->py_device->device, self->memory);
 
