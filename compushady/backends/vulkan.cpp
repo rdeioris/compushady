@@ -6,6 +6,7 @@
 #include <vulkan/vulkan_win32.h>
 #else
 #ifdef __APPLE__
+#include <vulkan/vulkan_metal.h>
 #else
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
@@ -418,8 +419,9 @@ static PyObject* vulkan_instance_check()
 			extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
 #else
 #ifdef __APPLE__
-		if ((0))
+		if (!strcmp(extension_prop.extensionName, VK_EXT_METAL_SURFACE_EXTENSION_NAME))
 		{
+			extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
 #else
 		if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
 		{
@@ -1396,7 +1398,24 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	}
 #else
 #ifdef __APPLE__
-	VkResult result;
+	if (!PyLong_Check(py_window_handle))
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_ValueError, "window handle must be an integer");
+	}
+
+	CAMetalLayer* metal_layer = (CAMetalLayer*)PyLong_AsUnsignedLongLong(py_window_handle);
+
+	VkMetalSurfaceCreateInfoEXT metal_surface_create_info = {};
+	metal_surface_create_info.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
+	metal_surface_create_info.pLayer = metal_layer;
+
+	VkResult result = vkCreateMetalSurfaceEXT(vulkan_instance, &metal_surface_create_info, NULL, &py_swapchain->surface);
+	if (result != VK_SUCCESS)
+	{
+		Py_DECREF(py_swapchain);
+		return PyErr_Format(PyExc_Exception, "Unable to create metal surface");
+	}
 #else
 	if (!PyTuple_Check(py_window_handle))
 	{

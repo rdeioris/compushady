@@ -2,6 +2,7 @@ from setuptools import setup, Extension
 import platform
 
 is_windows = platform.system() == 'Windows'
+is_mac = platform.system() == 'Darwin'
 
 backends = [Extension('compushady.backends.vulkan',
                       libraries=['vulkan-1' if is_windows else 'vulkan'],
@@ -9,7 +10,7 @@ backends = [Extension('compushady.backends.vulkan',
                       sources=['compushady/backends/vulkan.cpp',
                                'compushady/backends/common.cpp'],
                       extra_compile_args=['-std=c++14'] if not is_windows else [],
-                      extra_link_args=['-Wl,-rpath,/usr/local/lib/'] if platform.system() == 'Darwin' else [],
+                      extra_link_args=['-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
                       )]
 
 
@@ -29,6 +30,14 @@ if is_windows:
                                        'compushady/backends/common.cpp']
                               ))
 
+if is_mac:
+    backends.append(Extension('compushady.backends.metal',
+                              depends=['compushady/backends/compushady.h'],
+                              sources=['compushady/backends/metal.m'],
+                              extra_compile_args=['-ObjC++'],
+                              extra_link_args=['-Wl,-framework,MetalKit'],
+                              ))
+
 backends.append(Extension('compushady.backends.dxc',
                           libraries=['d3dcompiler'] if is_windows else [],
                           depends=['compushady/backends/compushady.h'],
@@ -42,11 +51,11 @@ if is_windows:
     additional_files = ['backends/dxcompiler.dll', 'backends/dxil.dll']
 elif platform.system() == 'Linux':
     additional_files = ['backends/libdxcompiler.so.3.7']
-elif platform.system() == 'Darwin':
+elif is_mac:
     additional_files = ['backends/libdxcompiler.3.7.dylib']
 
 setup(name='compushady',
-      version='0.2',
+      version='0.3',
       description='The compushady GPU Compute module',
       author='Roberto De Ioris',
       author_email='roberto.deioris@gmail.com',
