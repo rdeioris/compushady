@@ -9,8 +9,10 @@ backends = [Extension('compushady.backends.vulkan',
                       depends=['compushady/backends/compushady.h'],
                       sources=['compushady/backends/vulkan.cpp',
                                'compushady/backends/common.cpp'],
-                      extra_compile_args=['-std=c++14'] if not is_windows else [],
-                      extra_link_args=['-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
+                      extra_compile_args=[
+                          '-std=c++14'] if not is_windows else [],
+                      extra_link_args=[
+                          '-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
                       )]
 
 
@@ -43,7 +45,8 @@ backends.append(Extension('compushady.backends.dxc',
                           depends=['compushady/backends/compushady.h'],
                           sources=['compushady/backends/dxc.cpp',
                                    'compushady/backends/common.cpp'],
-                          extra_compile_args=['-std=c++14'] if not is_windows else [],
+                          extra_compile_args=[
+                              '-std=c++14'] if not is_windows else [],
                           ))
 
 additional_files = []
