@@ -3,7 +3,7 @@ Python module for easily running Compute Shaders
 
 ![compushadyMandlebrot](compushady_mandlebrot.gif?raw=true "compushady Mandlebrot")
 
-Currently d3d12 (Windows), vulkan (Linux x86-64 and Windows) and d3d11 (Windows) are supported. 
+Currently d3d12 (Windows), vulkan (Linux, Mac and Windows) and d3d11 (Windows) are supported. 
 
 You can write shaders in HLSL and they will be compiled in the appropriate format (DXIL, DXBC, SPIR-V, ...) automatically (using the DXC compiler included in the module).
 
