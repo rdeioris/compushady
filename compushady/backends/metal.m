@@ -5,6 +5,7 @@ typedef struct metal_Device
 {
     PyObject_HEAD;
     id<MTLDevice> device;
+    id<MTLCommandQueue> command_queue;
     PyObject* name;
     size_t dedicated_video_memory;
     size_t dedicated_system_memory;
@@ -23,6 +24,62 @@ typedef struct metal_Resource
     NSUInteger size;
     NSUInteger stride;
 } metal_Resource;
+
+typedef struct metal_Compute
+{
+    PyObject_HEAD;
+    metal_Device* py_device;
+    id<MTLCommandBuffer> compute_command_buffer;
+    id<MTLComputeCommandEncoder> compute_command_encoder;
+    PyObject* py_cbv_list;
+    PyObject* py_srv_list;
+    PyObject* py_uav_list;
+} metal_Compute;
+
+typedef struct metal_Swapchain
+{
+    PyObject_HEAD;
+    metal_Device* py_device;
+} metal_Swapchain;
+
+typedef struct metal_MTLFunction
+{
+    PyObject_HEAD;
+    id<MTLFunction> function;
+} metal_MTLFunction;
+
+static void metal_MTLFunction_dealloc(metal_MTLFunction* self)
+{
+    if (self->function)
+    {
+        [self->function release];
+    }
+    
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject metal_MTLFunction_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.MTLFunction", /* tp_name */
+    sizeof(metal_MTLFunction),                                              /* tp_basicsize */
+    0,                                                                      /* tp_itemsize */
+    (destructor)metal_MTLFunction_dealloc,                                  /* tp_dealloc */
+    0,                                                                      /* tp_print */
+    0,                                                                      /* tp_getattr */
+    0,                                                                      /* tp_setattr */
+    0,                                                                      /* tp_reserved */
+    0,                                                                      /* tp_repr */
+    0,                                                                      /* tp_as_number */
+    0,                                                                      /* tp_as_sequence */
+    0,                                                                      /* tp_as_mapping */
+    0,                                                                      /* tp_hash  */
+    0,                                                                      /* tp_call */
+    0,                                                                      /* tp_str */
+    0,                                                                      /* tp_getattro */
+    0,                                                                      /* tp_setattro */
+    0,                                                                      /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,                                                      /* tp_flags */
+    "compushady metal MTLFunction",                                          /* tp_doc */
+};
 
 static void metal_Resource_dealloc(metal_Resource* self)
 {
@@ -64,6 +121,9 @@ static PyTypeObject metal_Resource_Type = {
 static void metal_Device_dealloc(metal_Device* self)
 {
     Py_XDECREF(self->name);
+    
+    if (self->command_queue)
+        [self->command_queue release];
     
     if (self->device)
     {
@@ -108,6 +168,82 @@ static PyMemberDef metal_Device_members[] = {
     {NULL} /* Sentinel */
 };
 
+static void metal_Compute_dealloc(metal_Compute* self)
+{
+    if (self->compute_command_encoder)
+        [self->compute_command_encoder release];
+    
+    if (self->compute_command_buffer)
+        [self->compute_command_buffer release];
+    
+    if (self->py_device)
+    {
+        Py_DECREF(self->py_device);
+    }
+    
+    Py_XDECREF(self->py_cbv_list);
+    Py_XDECREF(self->py_srv_list);
+    Py_XDECREF(self->py_uav_list);
+    
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject metal_Compute_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Compute", /* tp_name */
+    sizeof(metal_Compute),                                                 /* tp_basicsize */
+    0,                                                                     /* tp_itemsize */
+    (destructor)metal_Compute_dealloc,                                     /* tp_dealloc */
+    0,                                                                     /* tp_print */
+    0,                                                                     /* tp_getattr */
+    0,                                                                     /* tp_setattr */
+    0,                                                                     /* tp_reserved */
+    0,                                                                     /* tp_repr */
+    0,                                                                     /* tp_as_number */
+    0,                                                                     /* tp_as_sequence */
+    0,                                                                     /* tp_as_mapping */
+    0,                                                                     /* tp_hash  */
+    0,                                                                     /* tp_call */
+    0,                                                                     /* tp_str */
+    0,                                                                     /* tp_getattro */
+    0,                                                                     /* tp_setattro */
+    0,                                                                     /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,                                                     /* tp_flags */
+    "compushady metal Compute",                                         /* tp_doc */
+};
+
+static void metal_Swapchain_dealloc(metal_Swapchain* self)
+{
+    if (self->py_device)
+    {
+        Py_DECREF(self->py_device);
+    }
+    
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject metal_Swapchain_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Swapchain", /* tp_name */
+    sizeof(metal_Swapchain),                                               /* tp_basicsize */
+    0,                                                                       /* tp_itemsize */
+    (destructor)metal_Swapchain_dealloc,                                   /* tp_dealloc */
+    0,                                                                       /* tp_print */
+    0,                                                                       /* tp_getattr */
+    0,                                                                       /* tp_setattr */
+    0,                                                                       /* tp_reserved */
+    0,                                                                       /* tp_repr */
+    0,                                                                       /* tp_as_number */
+    0,                                                                       /* tp_as_sequence */
+    0,                                                                       /* tp_as_mapping */
+    0,                                                                       /* tp_hash  */
+    0,                                                                       /* tp_call */
+    0,                                                                       /* tp_str */
+    0,                                                                       /* tp_getattro */
+    0,                                                                       /* tp_setattro */
+    0,                                                                       /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,                                                       /* tp_flags */
+    "compushady metal Swapchain",                                           /* tp_doc */
+};
+
 static PyObject* compushady_create_metal_layer(PyObject* self, PyObject* args)
 {
     NSWindow* window_handle;
@@ -122,11 +258,42 @@ static PyObject* compushady_create_metal_layer(PyObject* self, PyObject* args)
     metal_layer.frame = [window_handle.contentView frame];
     window_handle.contentView.layer = metal_layer;
     
+    [device release];
+    
     return PyLong_FromUnsignedLongLong((unsigned long long)metal_layer);
 }
 
+static PyMemberDef metal_Resource_members[] = {
+    {"size", T_ULONGLONG, offsetof(metal_Resource, size), 0, "resource size"},
+    /*{"width", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, width), 0, "resource width"},
+     {"height", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, height), 0, "resource height"},
+     {"depth", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, depth), 0, "resource depth"},
+     {"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},*/
+    {NULL} /* Sentinel */
+};
+
+static PyMemberDef metal_Swapchain_members[] = {
+    /*{"width", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, width), 0, "swapchain width"},
+     {"height", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, height), 0, "swapchain height"},*/
+    {NULL} /* Sentinel */
+};
+
+static PyMethodDef metal_Compute_methods[] = {
+    // {"dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
+    {NULL, NULL, 0, NULL} /* Sentinel */
+};
+
+static PyMethodDef metal_Swapchain_methods[] = {
+    //{"present", (PyCFunction)vulkan_Swapchain_present, METH_VARARGS, "Blit a texture resource to the Swapchain and present it"},
+    {NULL, NULL, 0, NULL} /* Sentinel */
+};
+
 static metal_Device* metal_Device_get_device(metal_Device* self)
 {
+    if (!self->command_queue)
+    {
+        self->command_queue = [self->device newCommandQueue];
+    }
     return self;
 }
 
@@ -180,9 +347,84 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
     return (PyObject*)py_resource;
 }
 
+static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args, PyObject* kwds)
+{
+    const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+    PyObject* py_msl;
+    PyObject* py_cbv = NULL;
+    PyObject* py_srv = NULL;
+    PyObject* py_uav = NULL;
+    
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
+                                     &py_msl, &py_cbv, &py_srv, &py_uav))
+        return NULL;
+    
+    metal_Device* py_device = metal_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+    
+    std::vector<metal_Resource*> cbv;
+    std::vector<metal_Resource*> srv;
+    std::vector<metal_Resource*> uav;
+    
+    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
+    {
+        return NULL;
+    }
+    
+    metal_Compute* py_compute = (metal_Compute*)PyObject_New(metal_Compute, &metal_Compute_Type);
+    if (!py_compute)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Compute");
+    }
+    COMPUSHADY_CLEAR(py_compute);
+    py_compute->py_device = py_device;
+    Py_INCREF(py_compute->py_device);
+    
+    py_compute->py_cbv_list = PyList_New(0);
+    py_compute->py_srv_list = PyList_New(0);
+    py_compute->py_uav_list = PyList_New(0);
+    
+    py_compute->compute_command_buffer = [py_compute->py_device->command_queue commandBuffer];
+    py_compute->compute_command_encoder = [py_compute->compute_command_buffer computeCommandEncoder];
+    
+    for (size_t i = 0; i<cbv.size();i++)
+    {
+        metal_Resource* py_resource = cbv[i];
+        PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
+        [py_compute->compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:i];
+    }
+    
+    for (size_t i = 0; i<srv.size();i++)
+    {
+        metal_Resource* py_resource = srv[i];
+        PyList_Append(py_compute->py_srv_list, (PyObject*)py_resource);
+    }
+    
+    for (size_t i = 0; i<uav.size();i++)
+    {
+        metal_Resource* py_resource = uav[i];
+        PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
+    }
+    
+    
+    
+    return (PyObject*)py_compute;
+}
+
+
+static PyObject* metal_Device_get_debug_messages(metal_Device * self, PyObject * args)
+{
+    PyObject* py_list = PyList_New(0);
+    
+    return py_list;
+}
+
 
 static PyMethodDef metal_Device_methods[] = {
     {"create_buffer", (PyCFunction)metal_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
+    {"create_compute", (PyCFunction)metal_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
+    {"get_debug_messages", (PyCFunction)metal_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -215,26 +457,106 @@ static PyObject* metal_Resource_readback(metal_Resource * self, PyObject * args)
     size_t offset;
     if (!PyArg_ParseTuple(args, "KK", &size, &offset))
         return NULL;
-
+    
     if (size == 0)
         size = self->size - offset;
-
+    
     if (offset + size > self->size)
     {
         return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: (offset %llu) %llu (expected no more than %llu)", offset, size, self->size);
     }
-
+    
     char* mapped_data = (char*)[self->buffer contents];
-
+    
     PyObject* py_bytes = PyBytes_FromStringAndSize(mapped_data + offset, size);
-  
+    
     return py_bytes;
 }
+
+static PyObject* metal_Resource_readback_to_buffer(metal_Resource* self, PyObject* args)
+{
+    Py_buffer view;
+    size_t offset = 0;
+    if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
+        return NULL;
+    
+    if (offset > self->size)
+    {
+        PyBuffer_Release(&view);
+        return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", offset, self->size);
+    }
+    
+    char* mapped_data = (char*)[self->buffer contents];
+    
+    memcpy(view.buf, mapped_data + offset, Py_MIN((size_t)view.len, self->size - offset));
+    
+    PyBuffer_Release(&view);
+    Py_RETURN_NONE;
+}
+
+
+static PyObject* metal_Resource_copy_to(metal_Resource * self, PyObject * args)
+{
+    PyObject* py_destination;
+    if (!PyArg_ParseTuple(args, "O", &py_destination))
+        return NULL;
+    
+    int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+    
+    metal_Resource* dst_resource = (metal_Resource*)py_destination;
+    size_t dst_size = ((metal_Resource*)py_destination)->size;
+    
+    if (self->size > dst_size)
+    {
+        return PyErr_Format(PyExc_ValueError, "Resource size is bigger than destination size: %llu (expected no more than %llu)", self->size, dst_size);
+    }
+    
+    id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit_command_encoder = [blit_command_buffer blitCommandEncoder];
+    
+    if (self->buffer && dst_resource->buffer)
+    {
+        [blit_command_encoder copyFromBuffer:self->buffer sourceOffset:0 toBuffer:dst_resource->buffer destinationOffset:0 size:self->size];
+    }
+    else if (self->buffer) // buffer to image
+    {
+        
+    }
+    else if (dst_resource->buffer) // image to buffer
+    {
+        
+    }
+    else // image to image
+    {
+        
+    }
+    
+    [blit_command_encoder endEncoding];
+    
+    [blit_command_buffer commit];
+    [blit_command_buffer waitUntilCompleted];
+    
+    [blit_command_encoder release];
+    [blit_command_buffer release];
+    
+    Py_RETURN_NONE;
+}
+
 
 
 static PyMethodDef metal_Resource_methods[] = {
     {"upload", (PyCFunction)metal_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
     {"readback", (PyCFunction)metal_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
+    {"readback_to_buffer", (PyCFunction)metal_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
+    {"copy_to", (PyCFunction)metal_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -270,8 +592,63 @@ static PyObject* metal_get_discovered_devices(PyObject * self)
     return py_list;
 }
 
+static PyObject* metal_enable_debug(PyObject * self)
+{
+    Py_RETURN_NONE;
+}
+
+static PyObject* metal_get_shader_binary_type(PyObject * self)
+{
+    return PyLong_FromLong(COMPUSHADY_SHADER_BINARY_TYPE_MSL);
+}
+
+static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
+{
+    Py_buffer view;
+    PyObject* py_entry_point;
+    if (!PyArg_ParseTuple(args, "s*U", &view, &py_entry_point))
+        return NULL;
+    
+    id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+    
+    NSString* source = [[NSString alloc] initWithBytes:view.buf length:view.len encoding:NSUTF8StringEncoding];
+    
+    id<MTLLibrary> library = [device newLibraryWithSource:source options:NULL error:NULL];
+    
+    const char* function_name_utf8 = PyUnicode_AsUTF8AndSize(py_entry_point, NULL);
+    
+    NSString* function_name = [[NSString alloc] initWithUTF8String:function_name_utf8];
+    
+    id<MTLFunction> function = [library newFunctionWithName:function_name];
+    if (!function)
+    {
+        return PyErr_Format(PyExc_Exception, "unable to find function %s in MTLLibrary",function_name_utf8);
+    }
+    
+    metal_MTLFunction* py_mtl_function = (metal_MTLFunction*)PyObject_New(metal_MTLFunction, &metal_MTLFunction_Type);
+    if (!py_mtl_function)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal MTLFunction");
+    }
+    COMPUSHADY_CLEAR(py_mtl_function);
+    py_mtl_function->function = function;
+    
+    [function_name release];
+    
+    [source release];
+    
+    [library release];
+    
+    [device release];
+    
+    return (PyObject*)py_mtl_function;
+}
+
 static PyMethodDef compushady_backends_metal_methods[] = {
     {"create_metal_layer", (PyCFunction)compushady_create_metal_layer, METH_VARARGS, "Creates a CAMetalLayer on the default device"},
+    {"msl_compile", (PyCFunction)compushady_msl_compile, METH_VARARGS, "Compile a MSL shader"},
+    {"enable_debug", (PyCFunction)metal_enable_debug, METH_NOARGS, "Enable GPU debug mode"},
+    {"get_shader_binary_type", (PyCFunction)metal_get_shader_binary_type, METH_NOARGS, "Returns the required shader binary type"},
     {"get_discovered_devices", (PyCFunction)metal_get_discovered_devices, METH_NOARGS, "Returns the list of discovered GPU devices"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
@@ -286,36 +663,34 @@ static struct PyModuleDef compushady_backends_metal_module = {
 PyMODINIT_FUNC
 PyInit_metal(void)
 {
-    PyObject* m = PyModule_Create(&compushady_backends_metal_module);
+    PyObject* m = compushady_backend_init(
+                                          &compushady_backends_metal_module,
+                                          &metal_Device_Type, metal_Device_members, metal_Device_methods,
+                                          &metal_Resource_Type, metal_Resource_members, metal_Resource_methods,
+                                          &metal_Swapchain_Type, metal_Swapchain_members, metal_Swapchain_methods,
+                                          &metal_Compute_Type, NULL, metal_Compute_methods
+                                          );
+    
     if (!m)
         return NULL;
     
-    metal_Device_Type.tp_members = metal_Device_members;
-    metal_Device_Type.tp_methods = metal_Device_methods;
-    if (PyType_Ready(&metal_Device_Type) < 0)
+    if (PyType_Ready(&metal_MTLFunction_Type) < 0)
     {
-        Py_DECREF(m);
-        return NULL;
-    }
-    Py_INCREF(&metal_Device_Type);
-    if (PyModule_AddObject(m, "Device", (PyObject*)&metal_Device_Type) < 0)
-    {
+        Py_DECREF(&metal_Swapchain_Type);
+        Py_DECREF(&metal_Compute_Type);
+        Py_DECREF(&metal_Resource_Type);
         Py_DECREF(&metal_Device_Type);
         Py_DECREF(m);
         return NULL;
     }
-    
-    //metal_Resource_Type.tp_members = metal_Resource_members;
-    metal_Resource_Type.tp_methods = metal_Resource_methods;
-    if (PyType_Ready(&metal_Resource_Type) < 0)
+    Py_INCREF(&metal_MTLFunction_Type);
+    if (PyModule_AddObject(m, "MTLFunction", (PyObject*)&metal_MTLFunction_Type) < 0)
     {
-        Py_DECREF(m);
-        return NULL;
-    }
-    Py_INCREF(&metal_Resource_Type);
-    if (PyModule_AddObject(m, "Resource", (PyObject*)&metal_Resource_Type) < 0)
-    {
+        Py_DECREF(&metal_MTLFunction_Type);
+        Py_DECREF(&metal_Swapchain_Type);
+        Py_DECREF(&metal_Compute_Type);
         Py_DECREF(&metal_Resource_Type);
+        Py_DECREF(&metal_Device_Type);
         Py_DECREF(m);
         return NULL;
     }
