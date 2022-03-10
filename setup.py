@@ -35,8 +35,10 @@ if is_windows:
 if is_mac:
     backends.append(Extension('compushady.backends.metal',
                               depends=['compushady/backends/compushady.h'],
-                              sources=['compushady/backends/metal.m', 'compushady/backends/common.cpp'],
-                              extra_compile_args=['-ObjC++', '-Wno-unguarded-availability-new', '-Wno-objc-multiple-method-names'],
+                              sources=['compushady/backends/metal.m',
+                                       'compushady/backends/common.cpp'],
+                              extra_compile_args=[
+                                  '-ObjC++', '-Wno-unguarded-availability-new', '-Wno-objc-multiple-method-names'],
                               extra_link_args=['-Wl,-framework,MetalKit'],
                               ))
 
@@ -58,7 +60,7 @@ elif is_mac:
     additional_files = ['backends/libdxcompiler.3.7.dylib']
 
 setup(name='compushady',
-      version='0.4',
+      version='0.6',
       description='The compushady GPU Compute module',
       author='Roberto De Ioris',
       author_email='roberto.deioris@gmail.com',
