@@ -1,6 +1,7 @@
 import importlib
 from . import config
 import atexit
+import os
 
 HEAP_DEFAULT = 0
 HEAP_UPLOAD = 1
@@ -70,6 +71,8 @@ def get_current_device():
 
 
 def get_best_device():
+    if 'COMPUSHADY_DEVICE' in os.environ:
+        return get_discovered_devices()[int(os.environ['COMPUSHADY_DEVICE'])]
     return sorted(get_discovered_devices(), key=lambda x: (
         x.is_hardware, x.is_discrete, x.dedicated_video_memory))[-1]
 
