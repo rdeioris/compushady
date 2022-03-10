@@ -1,19 +1,38 @@
 from setuptools import setup, Extension
+import os
 import platform
 
 is_windows = platform.system() == 'Windows'
 is_mac = platform.system() == 'Darwin'
 
-backends = [Extension('compushady.backends.vulkan',
-                      libraries=['vulkan-1' if is_windows else 'vulkan'],
-                      depends=['compushady/backends/compushady.h'],
-                      sources=['compushady/backends/vulkan.cpp',
-                               'compushady/backends/common.cpp'],
-                      extra_compile_args=[
-                          '-std=c++14'] if not is_windows else [],
-                      extra_link_args=[
-                          '-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
-                      )]
+build_vulkan = not is_windows and not is_mac
+
+vulkan_include_dirs = []
+vulkan_library_dirs = []
+
+if is_windows:
+    if 'VULKAN_SDK' in os.environ:
+        vulkan_include_dirs = [os.path.join(
+            os.environ['VULKAN_SDK'], 'Include')]
+        vulkan_library_dirs = [os.path.join(os.environ['VULKAN_SDK'], 'Lib')]
+        build_vulkan = True
+
+backends = []
+
+if build_vulkan:
+    backends.append(Extension('compushady.backends.vulkan',
+                              libraries=[
+                                  'vulkan-1' if is_windows else 'vulkan'],
+                              include_dirs=vulkan_include_dirs,
+                              library_dirs=vulkan_library_dirs,
+                              depends=['compushady/backends/compushady.h'],
+                              sources=['compushady/backends/vulkan.cpp',
+                                       'compushady/backends/common.cpp'],
+                              extra_compile_args=[
+                                  '-std=c++14'] if not is_windows else [],
+                              extra_link_args=[
+                                  '-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
+                              ))
 
 
 if is_windows:
