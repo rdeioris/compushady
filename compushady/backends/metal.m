@@ -21,8 +21,13 @@ typedef struct metal_Resource
     PyObject_HEAD;
     metal_Device* py_device;
     id<MTLBuffer> buffer;
+    id<MTLTexture> texture;
     NSUInteger size;
     NSUInteger stride;
+    NSUInteger row_pitch;
+    NSUInteger width;
+    NSUInteger height;
+    NSUInteger depth;
 } metal_Resource;
 
 typedef struct metal_Compute
@@ -88,6 +93,10 @@ static void metal_Resource_dealloc(metal_Resource* self)
         [self->buffer release];
     }
     
+    if (self->texture)
+    {
+        [self->texture release];
+    }
     Py_XDECREF(self->py_device);
     
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -265,10 +274,10 @@ static PyObject* compushady_create_metal_layer(PyObject* self, PyObject* args)
 
 static PyMemberDef metal_Resource_members[] = {
     {"size", T_ULONGLONG, offsetof(metal_Resource, size), 0, "resource size"},
-    /*{"width", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, width), 0, "resource width"},
-     {"height", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, height), 0, "resource height"},
-     {"depth", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, depth), 0, "resource depth"},
-     {"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},*/
+    {"width", T_UINT, offsetof(metal_Resource, width), 0, "resource width"},
+    {"height", T_UINT, offsetof(metal_Resource, height), 0, "resource height"},
+    {"depth", T_UINT, offsetof(metal_Resource, depth), 0, "resource depth"},
+    {"row_pitch", T_UINT, offsetof(metal_Resource, row_pitch), 0, "resource row pitch"},
     {NULL} /* Sentinel */
 };
 
@@ -420,9 +429,119 @@ static PyObject* metal_Device_get_debug_messages(metal_Device * self, PyObject *
     return py_list;
 }
 
+static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* args)
+{
+    uint32_t width;
+    uint32_t height;
+    int format;
+    if (!PyArg_ParseTuple(args, "IIi", &width, &height, &format))
+        return NULL;
+    
+    metal_Device* py_device = metal_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+    
+    metal_Resource* py_resource = (metal_Resource*)PyObject_New(metal_Resource, &metal_Resource_Type);
+    if (!py_resource)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Resource");
+    }
+    COMPUSHADY_CLEAR(py_resource);
+    py_resource->py_device = py_device;
+    Py_INCREF(py_resource->py_device);
+    
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    texture_descriptor.textureType = MTLTextureType2D;
+    texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    texture_descriptor.arrayLength = 1;
+    texture_descriptor.mipmapLevelCount = 1;
+    texture_descriptor.width = width;
+    texture_descriptor.height = height;
+    texture_descriptor.depth = 1;
+    texture_descriptor.storageMode = MTLStorageModePrivate;
+    texture_descriptor.sampleCount = 1;
+    
+    py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    py_resource->row_pitch = width * 4;
+    py_resource->width = width;
+    py_resource->height = height;
+    py_resource->depth = 1;
+    py_resource->size = width * 4 * height;
+    
+    [texture_descriptor release];
+    
+    return (PyObject*)py_resource;
+}
+
+static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* args)
+{
+    uint32_t width;
+    int format;
+    if (!PyArg_ParseTuple(args, "Ii", &width, &format))
+        return NULL;
+    
+    metal_Device* py_device = metal_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+    
+    metal_Resource* py_resource = (metal_Resource*)PyObject_New(metal_Resource, &metal_Resource_Type);
+    if (!py_resource)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Resource");
+    }
+    COMPUSHADY_CLEAR(py_resource);
+    py_resource->py_device = py_device;
+    Py_INCREF(py_resource->py_device);
+    
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    texture_descriptor.width = width;
+    
+    py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    
+    [texture_descriptor release];
+    
+    return (PyObject*)py_resource;
+}
+
+static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* args)
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    int format;
+    if (!PyArg_ParseTuple(args, "IIIi", &width, &height, &depth, &format))
+        return NULL;
+    
+    metal_Device* py_device = metal_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+    
+    metal_Resource* py_resource = (metal_Resource*)PyObject_New(metal_Resource, &metal_Resource_Type);
+    if (!py_resource)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Resource");
+    }
+    COMPUSHADY_CLEAR(py_resource);
+    py_resource->py_device = py_device;
+    Py_INCREF(py_resource->py_device);
+    
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    texture_descriptor.width = width;
+    texture_descriptor.height = height;
+    texture_descriptor.depth = depth;
+    
+    py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    
+    [texture_descriptor release];
+    
+    return (PyObject*)py_resource;
+}
 
 static PyMethodDef metal_Device_methods[] = {
     {"create_buffer", (PyCFunction)metal_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
+    {"create_texture2d", (PyCFunction)metal_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
+    {"create_texture1d", (PyCFunction)metal_Device_create_texture1d, METH_VARARGS, "Creates a Texture1D object"},
+    {"create_texture3d", (PyCFunction)metal_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
     {"create_compute", (PyCFunction)metal_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
     {"get_debug_messages", (PyCFunction)metal_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
     {NULL, NULL, 0, NULL} /* Sentinel */
@@ -445,6 +564,37 @@ static PyObject* metal_Resource_upload(metal_Resource* self, PyObject* args)
     char* mapped_data = (char*)[self->buffer contents];
     
     memcpy(mapped_data + offset, view.buf, view.len);
+    
+    PyBuffer_Release(&view);
+    
+    Py_RETURN_NONE;
+}
+
+static PyObject* metal_Resource_upload2d(metal_Resource* self, PyObject* args)
+{
+    Py_buffer view;
+    NSUInteger pitch;
+    NSUInteger width;
+    NSUInteger height;
+    NSUInteger bytes_per_pixel;
+    if (!PyArg_ParseTuple(args, "y*IIII", &view, &pitch, &width, &height, &bytes_per_pixel))
+        return NULL;
+    
+    char* mapped_data = (char*)[self->buffer contents];
+    
+    size_t offset = 0;
+    size_t remains = view.len;
+    size_t resource_remains = self->size;
+    for (NSUInteger y = 0; y < height; y++)
+    {
+        size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
+        memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
+        remains -= amount;
+        if (remains == 0)
+            break;
+        resource_remains -= amount;
+        offset += amount;
+    }
     
     PyBuffer_Release(&view);
     
@@ -528,15 +678,15 @@ static PyObject* metal_Resource_copy_to(metal_Resource * self, PyObject * args)
     }
     else if (self->buffer) // buffer to image
     {
-        
+        [blit_command_encoder copyFromBuffer:self->buffer sourceOffset:0 sourceBytesPerRow:dst_resource->row_pitch sourceBytesPerImage:dst_resource->row_pitch * dst_resource->height sourceSize:MTLSizeMake(dst_resource->width, dst_resource->height, dst_resource->depth) toTexture:dst_resource->texture destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(0,0,0)];
     }
     else if (dst_resource->buffer) // image to buffer
     {
-        
+        [blit_command_encoder copyFromTexture:self->texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(self->width, self->height, self->depth) toBuffer:dst_resource->buffer destinationOffset:0 destinationBytesPerRow:self->row_pitch destinationBytesPerImage:self->row_pitch * self->height];
     }
     else // image to image
     {
-        
+        [blit_command_encoder copyFromTexture:self->texture toTexture:dst_resource->texture];
     }
     
     [blit_command_encoder endEncoding];
@@ -554,6 +704,7 @@ static PyObject* metal_Resource_copy_to(metal_Resource * self, PyObject * args)
 
 static PyMethodDef metal_Resource_methods[] = {
     {"upload", (PyCFunction)metal_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
+    {"upload2d", (PyCFunction)metal_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
     {"readback", (PyCFunction)metal_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
     {"readback_to_buffer", (PyCFunction)metal_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
     {"copy_to", (PyCFunction)metal_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
