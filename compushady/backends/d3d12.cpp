@@ -410,10 +410,6 @@ static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
 		return d3d_generate_exception(PyExc_Exception, hr, "unable to Present() Swapchain");
 	}
 
-	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
-	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
-	WaitForSingleObject(self->py_device->fence_event, INFINITE);
-
 	Py_RETURN_NONE;
 }
 
