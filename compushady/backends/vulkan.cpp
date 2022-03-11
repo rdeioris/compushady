@@ -47,6 +47,7 @@ typedef struct vulkan_Device
 	uint32_t queue_family_index;
 	char is_hardware;
 	char is_discrete;
+	VkPhysicalDeviceFeatures features;
 } vulkan_Device;
 
 typedef struct vulkan_Resource
@@ -64,6 +65,7 @@ typedef struct vulkan_Resource
 	VkDescriptorBufferInfo descriptor_buffer_info;
 	VkDescriptorImageInfo descriptor_image_info;
 	uint32_t row_pitch;
+	VkFormat format;
 } vulkan_Resource;
 
 typedef struct vulkan_Compute
@@ -129,6 +131,103 @@ static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t le
 	}
 	return NULL;
 }
+
+/*
+ * This issue has been discovered by the old Marco Beri:
+ * when mapping a descriptor to an image with a vulkan unsupported layout (B8G8R8A8_UNORM and B8G8R8A8_SRGB)
+ * the intel driver will spit out errors and will ignore the access to the image object
+ * Given that we need to support BGRA8 layouts (this is teh format used by swapchains) the only solution is
+ * to brutally patch the SPIR-V blob by adding an opcode marking the descriptor as NonReadable
+ *
+ *
+ */
+static uint32_t* vulkan_patch_spirv_unknown_uav(const uint32_t* words, size_t len, uint32_t binding)
+{
+	if (len < 20) // strip SPIR-V header
+		return NULL;
+	if (len % 4) // SPIR-V is a stream of 32bits words
+		return NULL;
+	if (words[0] != 0x07230203) // SPIR-V magic
+		return NULL;
+
+	size_t offset = 5; // (20 / 4 of SPIR-V header)
+	size_t words_num = len / 4;
+
+	bool found = false;
+	uint32_t binding_id = 0;
+
+	size_t injection_offset = 0;
+
+	// first step, search for Binding
+	while (offset < words_num)
+	{
+		uint32_t word = words[offset];
+		uint16_t opcode = word & 0xFFFF;
+		uint16_t size = word >> 16;
+		if (size == 0) // avoid loop!
+			return NULL;
+		if (opcode == 71 && (offset + size < words_num)) // OpDecorate(71) + id + Binding
+		{
+			if (size > 3)
+			{
+				if (words[offset + 2] == 33 && words[offset + 3] == binding)
+				{
+					binding_id = words[offset+1];
+					found = true;
+					injection_offset = offset + size;
+					break;
+				}
+			}
+		}
+		offset += size;
+	}
+
+	if (!found)
+		return NULL;
+
+	// second step, check if NonReadable is already set
+	offset = 5; // (20 / 4 of SPIR-V header)
+	found = false;
+	while (offset < words_num)
+	{
+		uint32_t word = words[offset];
+		uint16_t opcode = word & 0xFFFF;
+		uint16_t size = word >> 16;
+		if (size == 0) // avoid loop!
+			return NULL;
+		if (opcode == 71 && (offset + size < words_num)) // OpDecorate(71) + id + NonReadable
+		{
+			if (size > 2)
+			{
+				if (words[offset + 2] == 25)
+				{
+					found = true;
+					break;
+				}
+			}
+		}
+		offset += size;
+	}
+
+	if (found)
+		return NULL;
+
+	// inject NonReadable
+	
+	uint32_t* patched_blob = (uint32_t*) PyMem_Malloc(len + (4 * 3));
+	if (!patched_blob)
+		return NULL;
+
+	memcpy(patched_blob, words, injection_offset * 4);
+	patched_blob[injection_offset++] = 3 << 16 | 71; // OpDecorate(71)
+	patched_blob[injection_offset++] = binding_id;
+	patched_blob[injection_offset++] = 25; // NonReadable
+	memcpy(patched_blob + injection_offset, &words[injection_offset-3], len - ((injection_offset - 3) * 4));
+
+	return patched_blob;
+}
+
+
 
 static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFormat format, const uint32_t width, const uint32_t height, const uint32_t depth)
 {
@@ -502,6 +601,8 @@ static vulkan_Device* vulkan_Device_get_device(vulkan_Device * self)
 		return self;
 	}
 
+	vkGetPhysicalDeviceFeatures(self->physical_device, &self->features);
+
 	uint32_t num_queue_families = 0;
 	vkGetPhysicalDeviceQueueFamilyProperties(self->physical_device, &num_queue_families, nullptr);
 
@@ -693,6 +794,7 @@ static PyObject* vulkan_Device_create_buffer(vulkan_Device * self, PyObject * ar
 
 	if (format > 0)
 	{
+		py_resource->format = vulkan_formats[format].first;
 		VkBufferViewCreateInfo buffer_view_create_info = {};
 		buffer_view_create_info.format = vulkan_formats[format].first;
 		buffer_view_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
@@ -813,18 +915,6 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject *
 	image_view_create_info.subresourceRange.levelCount = 1;
 	image_view_create_info.subresourceRange.layerCount = 1;
 
-	// dirty hack for allowing BGRA for INTEL gpus on linux (thanks Marco Beri for reporting)
-#ifdef __linux__
-	if (image_view_create_info.format == VK_FORMAT_B8G8R8A8_UNORM)
-	{
-		image_view_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-		image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_B;
-		image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_G;
-		image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_R;
-		image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_A;
-	}
-#endif
-
 	result = vkCreateImageView(py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
 	if (result != VK_SUCCESS)
 	{
@@ -845,6 +935,7 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject *
 	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	py_resource->row_pitch = width * vulkan_formats[format].second;
 	py_resource->size = py_resource->row_pitch * height; // always assume a packed configuration
+	py_resource->format = image_view_create_info.format;
 
 	return (PyObject*)py_resource;
 }
@@ -901,6 +992,7 @@ static PyObject* vulkan_Device_create_texture2d_from_native(vulkan_Device * self
 	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	py_resource->row_pitch = width * vulkan_formats[format].second;
 	py_resource->size = py_resource->row_pitch * height; // always assume a packed configuration
+	py_resource->format = image_view_create_info.format;
 
 	return (PyObject*)py_resource;
 }
@@ -990,6 +1082,7 @@ static PyObject* vulkan_Device_create_texture3d(vulkan_Device * self, PyObject *
 	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	py_resource->row_pitch = width * vulkan_formats[format].second;
 	py_resource->size = py_resource->row_pitch * height * depth; // alway assume a packed configuration
+	py_resource->format = image_view_create_info.format;
 
 	return (PyObject*)py_resource;
 }
@@ -1077,6 +1170,7 @@ static PyObject* vulkan_Device_create_texture1d(vulkan_Device * self, PyObject *
 	py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 	py_resource->row_pitch = width * vulkan_formats[format].second;
 	py_resource->size = py_resource->row_pitch; // alway assume a packed configuration
+	py_resource->format = image_view_create_info.format;
 
 	return (PyObject*)py_resource;
 }
@@ -1110,6 +1204,11 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 	std::vector<VkDescriptorPoolSize> pool_sizes;
 	std::unordered_map<VkDescriptorType, std::vector<vulkan_Resource*>> descriptors;
 	std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
+
+	VkShaderModuleCreateInfo shader_create_info = {};
+        shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        shader_create_info.codeSize = view.len;
+        shader_create_info.pCode = (uint32_t*)(view.buf);
 
 	uint32_t binding_offset = 0;
 	for (vulkan_Resource* py_resource : cbv)
@@ -1205,6 +1304,21 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 		else
 		{
 			write_descriptor_set.pImageInfo = &py_resource->descriptor_image_info;
+			if (!py_device->features.shaderStorageImageReadWithoutFormat)
+			{
+				if (py_resource->format == VK_FORMAT_B8G8R8A8_UNORM || py_resource->format == VK_FORMAT_B8G8R8A8_SRGB)
+				{
+					uint32_t* patched_blob = vulkan_patch_spirv_unknown_uav(shader_create_info.pCode, shader_create_info.codeSize, binding_offset);
+					if (patched_blob)
+					{
+						// first free old blob if required
+						if (shader_create_info.pCode != view.buf)
+							PyMem_Free((void*)shader_create_info.pCode);
+						shader_create_info.pCode = patched_blob;
+						shader_create_info.codeSize += 4 * 3;
+					}
+				}
+			}
 		}
 		write_descriptor_sets.push_back(write_descriptor_set);
 
@@ -1224,14 +1338,11 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 		pool_sizes.push_back(pool_size);
 	}
 
-	VkShaderModuleCreateInfo shader_create_info = {};
-	shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	shader_create_info.codeSize = view.len;
-	shader_create_info.pCode = (uint32_t*)(view.buf);
-
 	const char* entry_point = vulkan_get_spirv_entry_point(shader_create_info.pCode, shader_create_info.codeSize);
 	if (!entry_point)
 	{
+		if (shader_create_info.pCode != view.buf)
+			PyMem_Free((void*)shader_create_info.pCode);
 		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_ValueError, "Invalid SPIR-V Shader, expected a GLCompute OpEntryPoint");
 	}
@@ -1240,10 +1351,14 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 	VkResult result = vkCreateShaderModule(py_device->device, &shader_create_info, nullptr, &shader_module);
 	if (result != VK_SUCCESS)
 	{
+		if (shader_create_info.pCode != view.buf)
+			PyMem_Free((void*)shader_create_info.pCode);
 		PyBuffer_Release(&view);
 		return PyErr_Format(PyExc_Exception, "Unable to create Shader Module");
 	}
 
+	if (shader_create_info.pCode != view.buf)
+		PyMem_Free((void*)shader_create_info.pCode);
 	PyBuffer_Release(&view);
 
 	vulkan_Compute* py_compute = (vulkan_Compute*)PyObject_New(vulkan_Compute, &vulkan_Compute_Type);
