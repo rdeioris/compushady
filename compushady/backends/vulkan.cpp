@@ -172,7 +172,7 @@ static uint32_t* vulkan_patch_spirv_unknown_uav(const uint32_t* words, size_t le
 			{
 				if (words[offset + 2] == 33 && words[offset + 3] == binding)
 				{
-					binding_id = words[offset+1];
+					binding_id = words[offset + 1];
 					found = true;
 					injection_offset = offset + size;
 					break;
@@ -213,8 +213,8 @@ static uint32_t* vulkan_patch_spirv_unknown_uav(const uint32_t* words, size_t le
 		return NULL;
 
 	// inject NonReadable
-	
-	uint32_t* patched_blob = (uint32_t*) PyMem_Malloc(len + (4 * 3));
+
+	uint32_t* patched_blob = (uint32_t*)PyMem_Malloc(len + (4 * 3));
 	if (!patched_blob)
 		return NULL;
 
@@ -222,7 +222,7 @@ static uint32_t* vulkan_patch_spirv_unknown_uav(const uint32_t* words, size_t le
 	patched_blob[injection_offset++] = 3 << 16 | 71; // OpDecorate(71)
 	patched_blob[injection_offset++] = binding_id;
 	patched_blob[injection_offset++] = 25; // NonReadable
-	memcpy(patched_blob + injection_offset, &words[injection_offset-3], len - ((injection_offset - 3) * 4));
+	memcpy(patched_blob + injection_offset, &words[injection_offset - 3], len - ((injection_offset - 3) * 4));
 
 	return patched_blob;
 }
@@ -1206,9 +1206,9 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 	std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
 
 	VkShaderModuleCreateInfo shader_create_info = {};
-        shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        shader_create_info.codeSize = view.len;
-        shader_create_info.pCode = (uint32_t*)(view.buf);
+	shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+	shader_create_info.codeSize = view.len;
+	shader_create_info.pCode = (uint32_t*)(view.buf);
 
 	uint32_t binding_offset = 0;
 	for (vulkan_Resource* py_resource : cbv)

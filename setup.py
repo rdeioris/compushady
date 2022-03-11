@@ -79,7 +79,7 @@ elif is_mac:
     additional_files = ['backends/libdxcompiler.3.7.dylib']
 
 setup(name='compushady',
-      version='0.6',
+      version='0.7',
       description='The compushady GPU Compute module',
       author='Roberto De Ioris',
       author_email='roberto.deioris@gmail.com',
