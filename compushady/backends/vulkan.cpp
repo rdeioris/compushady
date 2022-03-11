@@ -136,7 +136,7 @@ static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t le
  * This issue has been discovered by the old Marco Beri:
  * when mapping a descriptor to an image with a vulkan unsupported layout (B8G8R8A8_UNORM and B8G8R8A8_SRGB)
  * the intel driver will spit out errors and will ignore the access to the image object
- * Given that we need to support BGRA8 layouts (this is teh format used by swapchains) the only solution is
+ * Given that we need to support BGRA8 layouts (this is the format used by swapchains) the only solution is
  * to brutally patch the SPIR-V blob by adding an opcode marking the descriptor as NonReadable
  *
  *

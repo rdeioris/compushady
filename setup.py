@@ -17,6 +17,16 @@ if is_windows:
         vulkan_library_dirs = [os.path.join(os.environ['VULKAN_SDK'], 'Lib')]
         build_vulkan = True
 
+if is_mac:
+    vulkan_base = '/usr/local'
+    if 'VULKAN_SDK' in os.environ:
+        vulkan_base = os.environ['VULKAN_SDK']
+    vulkan_hpp = os.path.join(vulkan_base, 'include', 'vulkan', 'vulkan.hpp')
+    if os.path.exists(vulkan_hpp):
+        vulkan_include_dirs = [os.path.join(vulkan_base, 'include')]
+        vulkan_library_dirs = [os.path.join(vulkan_base, 'lib')]
+        build_vulkan = True
+
 backends = []
 
 if build_vulkan:
@@ -31,7 +41,7 @@ if build_vulkan:
                               extra_compile_args=[
                                   '-std=c++14'] if not is_windows else [],
                               extra_link_args=[
-                                  '-Wl,-rpath,/usr/local/lib/'] if is_mac else [],
+                                  '-Wl,-rpath,{0}'.format(vulkan_library_dirs[0])] if is_mac else [],
                               ))
 
 
