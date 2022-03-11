@@ -1,6 +1,6 @@
 import glfw
 from compushady import HEAP_UPLOAD, Buffer, Swapchain, Texture2D
-from compushady.formats import B8G8R8A8_UNORM
+from compushady.formats import R8G8B8A8_UNORM, B8G8R8A8_UNORM
 import platform
 import random
 
@@ -8,7 +8,7 @@ glfw.init()
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-target = Texture2D(256, 256, B8G8R8A8_UNORM)
+target = Texture2D(256, 256, R8G8B8A8_UNORM)
 random_buffer = Buffer(target.size, HEAP_UPLOAD)
 
 window = glfw.create_window(

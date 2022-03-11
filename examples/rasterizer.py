@@ -8,7 +8,7 @@ import platform
 
 compushady.config.set_debug(True)
 
-print('Using device', compushady.get_best_device().name)
+print('Using device', compushady.get_current_device().name)
 
 buffer = compushady.Buffer(512 * 512 * 4, compushady.HEAP_UPLOAD)
 buffer.upload(b'\xFF\x00\x00\x00' * 512 * 512)
@@ -21,7 +21,7 @@ buffer.copy_to(texture)
 
 print(texture)
 
-target = compushady.Texture2D(512, 512, compushady.formats.B8G8R8A8_UNORM)
+target = compushady.Texture2D(512, 512, compushady.formats.R8G8B8A8_UNORM)
 
 staging_buffer = compushady.Buffer(4 * 2 * 3 * 2, compushady.HEAP_UPLOAD)
 staging_buffer.upload(struct.pack('IIIIIIIIIIII', 10, 10,
@@ -56,7 +56,7 @@ void draw_triangle(uint2 a, uint2 b, uint2 c, uint2 p)
     {
         return;
     }
-    target[p] = float4(bc.x, bc.y, bc.z, 1);
+    target[p] = float4(bc.z, bc.y, bc.x, 1);
 }
 
 [numthreads(8,8,1)]

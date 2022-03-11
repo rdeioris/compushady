@@ -9,7 +9,7 @@ from PIL import Image
 
 compushady.config.set_debug(True)
 
-print('Using device', compushady.get_best_device().name)
+print('Using device', compushady.get_current_device().name)
 
 target = compushady.Texture2D(256, 256, compushady.formats.R8G8B8A8_UNORM)
 

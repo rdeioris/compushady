@@ -7,12 +7,11 @@ import struct
 import platform
 import math
 
-compushady.config.set_backend('vulkan')
 compushady.config.set_debug(True)
 
-print('Using device', compushady.get_best_device().name)
+print('Using device', compushady.get_current_device().name)
 
-target = compushady.Texture2D(2048, 2048, compushady.formats.B8G8R8A8_UNORM)
+target = compushady.Texture2D(1024, 1024, compushady.formats.R8G8B8A8_UNORM)
 
 shader = hlsl.compile("""
 
