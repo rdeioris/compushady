@@ -11,7 +11,7 @@ compushady.config.set_debug(True)
 
 print('Using device', compushady.get_current_device().name)
 
-target = compushady.Texture2D(1024, 1024, compushady.formats.R8G8B8A8_UNORM)
+target = compushady.Texture2D(1024, 1024, compushady.formats.B8G8R8A8_UNORM)
 
 config = compushady.Buffer(16, compushady.HEAP_UPLOAD) # use 16 to make d3d11 happy...
 
@@ -47,7 +47,7 @@ void main(int3 tid : SV_DispatchThreadID)
     target.GetDimensions(width, height);
     float2 xy = tid.xy / float2(width, height);
     float m = mandlebrot(xy);
-    target[tid.xy] = float4(multiplier, 0, m, 1); // switch R and B for supporting the swapchain
+    target[tid.xy] = float4(m, 0, multiplier, 1);
 }
 """)
 

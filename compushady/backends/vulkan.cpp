@@ -813,6 +813,18 @@ static PyObject* vulkan_Device_create_texture2d(vulkan_Device * self, PyObject *
 	image_view_create_info.subresourceRange.levelCount = 1;
 	image_view_create_info.subresourceRange.layerCount = 1;
 
+	// dirty hack for allowing BGRA for INTEL gpus on linux (thanks Marco Beri for reporting)
+#ifdef __linux__
+	if (image_view_create_info.format == VK_FORMAT_B8G8R8A8_UNORM)
+	{
+		image_view_create_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+		image_view_create_info.components.r = VK_COMPONENT_SWIZZLE_B;
+		image_view_create_info.components.g = VK_COMPONENT_SWIZZLE_G;
+		image_view_create_info.components.b = VK_COMPONENT_SWIZZLE_R;
+		image_view_create_info.components.a = VK_COMPONENT_SWIZZLE_A;
+	}
+#endif
+
 	result = vkCreateImageView(py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
 	if (result != VK_SUCCESS)
 	{
@@ -1701,7 +1713,7 @@ static PyObject* vulkan_Resource_readback(vulkan_Resource * self, PyObject * arg
 	return py_bytes;
 }
 
-static PyObject* vulkan_Resource_readback_to_buffer(vulkan_Resource* self, PyObject* args)
+static PyObject* vulkan_Resource_readback_to_buffer(vulkan_Resource * self, PyObject * args)
 {
 	Py_buffer view;
 	size_t offset = 0;
