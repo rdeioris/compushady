@@ -128,5 +128,15 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 
+	if (PyModule_AddObject(m, "name", PyUnicode_FromString(py_module_def->m_name)) < 0)
+	{
+		Py_DECREF(compute_type);
+		Py_DECREF(swapchain_type);
+		Py_DECREF(resource_type);
+		Py_DECREF(device_type);
+		Py_DECREF(m);
+		return NULL;
+	}
+
 	return m;
 }

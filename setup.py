@@ -67,7 +67,7 @@ if is_mac:
                               sources=['compushady/backends/metal.m',
                                        'compushady/backends/common.cpp'],
                               extra_compile_args=[
-                                  '-ObjC++', '-Wno-unguarded-availability-new', '-Wno-objc-multiple-method-names'],
+                                  '-ObjC++', '-Wno-unguarded-availability-new'],
                               extra_link_args=['-Wl,-framework,MetalKit'],
                               ))
 

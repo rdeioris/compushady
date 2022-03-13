@@ -1,6 +1,10 @@
 #include "compushady.h"
 #import <MetalKit/MetalKit.h>
 
+std::unordered_map<uint32_t, std::pair<MTLPixelFormat, uint32_t> > metal_formats;
+
+#define MTL_FORMAT(x, y, size) metal_formats[x] = std::pair<MTLPixelFormat, uint32_t>(y, size)
+
 typedef struct metal_Device
 {
     PyObject_HEAD;
@@ -30,15 +34,24 @@ typedef struct metal_Resource
     NSUInteger depth;
 } metal_Resource;
 
+typedef struct metal_MTLFunction
+{
+    PyObject_HEAD;
+    id<MTLFunction> function;
+} metal_MTLFunction;
+
 typedef struct metal_Compute
 {
     PyObject_HEAD;
     metal_Device* py_device;
-    id<MTLCommandBuffer> compute_command_buffer;
-    id<MTLComputeCommandEncoder> compute_command_encoder;
+    id<MTLComputePipelineState> compute_pipeline_state;
     PyObject* py_cbv_list;
     PyObject* py_srv_list;
     PyObject* py_uav_list;
+    std::vector<metal_Resource*> cbv;
+    std::vector<metal_Resource*> srv;
+    std::vector<metal_Resource*> uav;
+    metal_MTLFunction* py_mtl_function;
 } metal_Compute;
 
 typedef struct metal_Swapchain
@@ -46,12 +59,6 @@ typedef struct metal_Swapchain
     PyObject_HEAD;
     metal_Device* py_device;
 } metal_Swapchain;
-
-typedef struct metal_MTLFunction
-{
-    PyObject_HEAD;
-    id<MTLFunction> function;
-} metal_MTLFunction;
 
 static void metal_MTLFunction_dealloc(metal_MTLFunction* self)
 {
@@ -179,20 +186,20 @@ static PyMemberDef metal_Device_members[] = {
 
 static void metal_Compute_dealloc(metal_Compute* self)
 {
-    if (self->compute_command_encoder)
-        [self->compute_command_encoder release];
+    if (self->compute_pipeline_state)
+        [self->compute_pipeline_state release];
     
-    if (self->compute_command_buffer)
-        [self->compute_command_buffer release];
-    
-    if (self->py_device)
-    {
-        Py_DECREF(self->py_device);
-    }
+    Py_XDECREF(self->py_device);
     
     Py_XDECREF(self->py_cbv_list);
     Py_XDECREF(self->py_srv_list);
     Py_XDECREF(self->py_uav_list);
+    
+    Py_XDECREF(self->py_mtl_function);
+    
+    self->cbv = std::vector<metal_Resource*>();
+    self->srv = std::vector<metal_Resource*>();
+    self->uav = std::vector<metal_Resource*>();
     
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
@@ -287,8 +294,39 @@ static PyMemberDef metal_Swapchain_members[] = {
     {NULL} /* Sentinel */
 };
 
+static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
+{
+    uint32_t x, y, z;
+    if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
+        return NULL;
+    
+    id<MTLCommandBuffer> compute_command_buffer = [self->py_device->command_queue commandBuffer];
+    id<MTLComputeCommandEncoder> compute_command_encoder = [compute_command_buffer computeCommandEncoder];
+    
+    [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
+    
+    for(size_t i = 0; i < self->uav.size(); i++)
+    {
+        metal_Resource* py_resource = self->uav[i];
+        [compute_command_encoder setTexture:py_resource->texture atIndex:i];
+    }
+    
+    [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(8, 8, 8)];
+    
+    [compute_command_encoder endEncoding];
+    
+    
+    [compute_command_buffer commit];
+    [compute_command_buffer waitUntilCompleted];
+    
+    [compute_command_encoder release];
+    [compute_command_buffer release];
+    
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef metal_Compute_methods[] = {
-    // {"dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
+    {"dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -316,7 +354,7 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
         return NULL;
     
     if (!size)
-        return PyErr_Format(PyExc_Exception, "zero size buffer");
+        return PyErr_Format(Compushady_BufferError, "zero size buffer");
     
     metal_Device* py_device = metal_Device_get_device(self);
     if (!py_device)
@@ -364,22 +402,25 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     PyObject* py_srv = NULL;
     PyObject* py_uav = NULL;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO", (char**)kwlist,
                                      &py_msl, &py_cbv, &py_srv, &py_uav))
         return NULL;
+    
+    int ret = PyObject_IsInstance(py_msl, (PyObject*)&metal_MTLFunction_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a MTLFunction object");
+    }
+    
+    metal_MTLFunction* mtl_function = (metal_MTLFunction*)py_msl;
     
     metal_Device* py_device = metal_Device_get_device(self);
     if (!py_device)
         return NULL;
-    
-    std::vector<metal_Resource*> cbv;
-    std::vector<metal_Resource*> srv;
-    std::vector<metal_Resource*> uav;
-    
-    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
-    {
-        return NULL;
-    }
     
     metal_Compute* py_compute = (metal_Compute*)PyObject_New(metal_Compute, &metal_Compute_Type);
     if (!py_compute)
@@ -390,33 +431,43 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->py_device = py_device;
     Py_INCREF(py_compute->py_device);
     
+    py_compute->cbv = std::vector<metal_Resource*>();
+    py_compute->srv = std::vector<metal_Resource*>();
+    py_compute->uav = std::vector<metal_Resource*>();
+    
+    py_compute->py_mtl_function = mtl_function;
+    Py_DECREF(py_compute->py_mtl_function);
+    
+    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv, py_srv, py_compute->srv, py_uav, py_compute->uav))
+    {
+        Py_DECREF(py_compute);
+        return NULL;
+    }
+    
     py_compute->py_cbv_list = PyList_New(0);
     py_compute->py_srv_list = PyList_New(0);
     py_compute->py_uav_list = PyList_New(0);
     
-    py_compute->compute_command_buffer = [py_compute->py_device->command_queue commandBuffer];
-    py_compute->compute_command_encoder = [py_compute->compute_command_buffer computeCommandEncoder];
+    py_compute->compute_pipeline_state = [py_device->device newComputePipelineStateWithFunction:mtl_function->function error:nil];
     
-    for (size_t i = 0; i<cbv.size();i++)
+    for (size_t i = 0; i<py_compute->cbv.size();i++)
     {
-        metal_Resource* py_resource = cbv[i];
+        metal_Resource* py_resource = py_compute->cbv[i];
         PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
-        [py_compute->compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:i];
+        //[py_compute->compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:i];
     }
     
-    for (size_t i = 0; i<srv.size();i++)
+    for (size_t i = 0; i<py_compute->srv.size();i++)
     {
-        metal_Resource* py_resource = srv[i];
+        metal_Resource* py_resource = py_compute->srv[i];
         PyList_Append(py_compute->py_srv_list, (PyObject*)py_resource);
     }
     
-    for (size_t i = 0; i<uav.size();i++)
+    for (size_t i = 0; i<py_compute->uav.size();i++)
     {
-        metal_Resource* py_resource = uav[i];
+        metal_Resource* py_resource = py_compute->uav[i];
         PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
     }
-    
-    
     
     return (PyObject*)py_compute;
 }
@@ -436,6 +487,11 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     int format;
     if (!PyArg_ParseTuple(args, "IIi", &width, &height, &format))
         return NULL;
+
+    if (metal_formats.find(format) == metal_formats.end())
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    }
     
     metal_Device* py_device = metal_Device_get_device(self);
     if (!py_device)
@@ -452,7 +508,7 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     
     MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
     texture_descriptor.textureType = MTLTextureType2D;
-    texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    texture_descriptor.pixelFormat = metal_formats[format].first;
     texture_descriptor.arrayLength = 1;
     texture_descriptor.mipmapLevelCount = 1;
     texture_descriptor.width = width;
@@ -460,13 +516,14 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     texture_descriptor.depth = 1;
     texture_descriptor.storageMode = MTLStorageModePrivate;
     texture_descriptor.sampleCount = 1;
+    texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
-    py_resource->row_pitch = width * 4;
+    py_resource->row_pitch = width * metal_formats[format].second;
     py_resource->width = width;
     py_resource->height = height;
     py_resource->depth = 1;
-    py_resource->size = width * 4 * height;
+    py_resource->size = py_resource->row_pitch * height;
     
     [texture_descriptor release];
     
@@ -494,9 +551,22 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     Py_INCREF(py_resource->py_device);
     
     MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    texture_descriptor.textureType = MTLTextureType1D;
+    texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    texture_descriptor.arrayLength = 1;
+    texture_descriptor.mipmapLevelCount = 1;
     texture_descriptor.width = width;
+    texture_descriptor.height = 1;
+    texture_descriptor.depth = 1;
+    texture_descriptor.sampleCount = 1;
+    texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    py_resource->row_pitch = width * 4;
+    py_resource->width = width;
+    py_resource->height = 1;
+    py_resource->depth = 1;
+    py_resource->size = width * 4;
     
     [texture_descriptor release];
     
@@ -526,11 +596,22 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     Py_INCREF(py_resource->py_device);
     
     MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    texture_descriptor.textureType = MTLTextureType3D;
+    texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
+    texture_descriptor.arrayLength = 1;
+    texture_descriptor.mipmapLevelCount = 1;
     texture_descriptor.width = width;
     texture_descriptor.height = height;
     texture_descriptor.depth = depth;
+    texture_descriptor.sampleCount = 1;
+    texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    py_resource->row_pitch = width * 4;
+    py_resource->width = width;
+    py_resource->height = height;
+    py_resource->depth = depth;
+    py_resource->size = width * 4 * height * depth;
     
     [texture_descriptor release];
     
@@ -717,7 +798,7 @@ static PyObject* metal_get_discovered_devices(PyObject * self)
     
     NSArray<id<MTLDevice>>* devices = MTLCopyAllDevices();
     
-    for (id device in devices)
+    for (id<MTLDevice> device in devices)
     {
         metal_Device* py_device = (metal_Device*)PyObject_New(metal_Device, &metal_Device_Type);
         if (!py_device)
@@ -764,7 +845,19 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
     
     NSString* source = [[NSString alloc] initWithBytes:view.buf length:view.len encoding:NSUTF8StringEncoding];
     
-    id<MTLLibrary> library = [device newLibraryWithSource:source options:NULL error:NULL];
+    NSError *error = nil;
+    
+    id<MTLLibrary> library = [device newLibraryWithSource:source options:NULL error:&error];
+    if (!library)
+    {
+        PyObject* py_exc = PyErr_Format(PyExc_Exception, "unable to compile shader: %s", [[error localizedDescription] UTF8String]);
+        if (error)
+            [error release];
+        return py_exc;
+    }
+    
+    if (error)
+        [error release];
     
     const char* function_name_utf8 = PyUnicode_AsUTF8AndSize(py_entry_point, NULL);
     
@@ -845,6 +938,47 @@ PyInit_metal(void)
         Py_DECREF(m);
         return NULL;
     }
+    
+    
+    MTL_FORMAT(R32G32B32A32_FLOAT, MTLPixelFormatRGBA32Float,  4 * 4);
+    MTL_FORMAT(R32G32B32A32_UINT, MTLPixelFormatRGBA32Uint, 4 * 4);
+    MTL_FORMAT(R32G32B32A32_SINT, MTLPixelFormatRGBA32Sint, 4 * 4);
+    MTL_FORMAT(R16G16B16A16_FLOAT,MTLPixelFormatRGBA16Float, 4 * 2);
+    MTL_FORMAT(R16G16B16A16_UNORM, MTLPixelFormatRGBA16Unorm, 4 * 2);
+    MTL_FORMAT(R16G16B16A16_UINT, MTLPixelFormatRGBA16Uint, 4 * 2);
+    MTL_FORMAT(R16G16B16A16_SNORM, MTLPixelFormatRGBA16Snorm, 4 * 2);
+    MTL_FORMAT(R16G16B16A16_SINT, MTLPixelFormatRGBA16Sint, 4 * 2);
+    MTL_FORMAT(R32G32_FLOAT,MTLPixelFormatRG32Float, 2 * 4);
+    MTL_FORMAT(R32G32_UINT, MTLPixelFormatRG32Uint, 2 * 4);
+    MTL_FORMAT(R32G32_SINT, MTLPixelFormatRG32Sint, 2 * 4);
+    MTL_FORMAT(R8G8B8A8_UNORM, MTLPixelFormatRGBA8Unorm, 4);
+    MTL_FORMAT(R8G8B8A8_UNORM_SRGB, MTLPixelFormatRGBA8Unorm_sRGB, 4);
+    MTL_FORMAT(R8G8B8A8_UINT, MTLPixelFormatRGBA8Uint, 4);
+    MTL_FORMAT(R8G8B8A8_SNORM, MTLPixelFormatRGBA8Snorm, 4);
+    MTL_FORMAT(R8G8B8A8_SINT, MTLPixelFormatRGBA8Sint, 4);
+    MTL_FORMAT(R16G16_FLOAT, MTLPixelFormatRG16Float, 2 * 2);
+    MTL_FORMAT(R16G16_UNORM, MTLPixelFormatRG16Unorm, 2 * 2);
+    MTL_FORMAT(R16G16_UINT, MTLPixelFormatRG16Uint, 2 * 2);
+    MTL_FORMAT(R16G16_SNORM, MTLPixelFormatRG16Snorm, 2 * 2);
+    MTL_FORMAT(R16G16_SINT, MTLPixelFormatRG16Sint, 2 * 2);
+    MTL_FORMAT(R32_FLOAT, MTLPixelFormatR32Float, 4);
+    MTL_FORMAT(R32_UINT, MTLPixelFormatR32Uint, 4);
+    MTL_FORMAT(R32_SINT, MTLPixelFormatR32Sint, 4);
+    MTL_FORMAT(R8G8_UNORM, MTLPixelFormatRG8Unorm, 2);
+    MTL_FORMAT(R8G8_UINT, MTLPixelFormatRG8Uint, 2);
+    MTL_FORMAT(R8G8_SNORM, MTLPixelFormatRG8Snorm, 2);
+    MTL_FORMAT(R8G8_SINT, MTLPixelFormatRG8Sint, 2);
+    MTL_FORMAT(R16_FLOAT, MTLPixelFormatR16Float, 2);
+    MTL_FORMAT(R16_UNORM, MTLPixelFormatR16Unorm, 2);
+    MTL_FORMAT(R16_UINT, MTLPixelFormatR16Uint, 2);
+    MTL_FORMAT(R16_SNORM, MTLPixelFormatR16Snorm, 2);
+    MTL_FORMAT(R16_SINT, MTLPixelFormatR16Sint, 2);
+    MTL_FORMAT(R8_UNORM, MTLPixelFormatR8Unorm, 1);
+    MTL_FORMAT(R8_UINT, MTLPixelFormatR8Uint, 1);
+    MTL_FORMAT(R8_SNORM, MTLPixelFormatR8Snorm, 1);
+    MTL_FORMAT(R8_SINT, MTLPixelFormatR8Sint, 1);
+    MTL_FORMAT(B8G8R8A8_UNORM, MTLPixelFormatBGRA8Unorm, 4);
+    MTL_FORMAT(B8G8R8A8_UNORM_SRGB, MTLPixelFormatBGRA8Unorm_sRGB, 4);
     
     return m;
 }
