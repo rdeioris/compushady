@@ -402,7 +402,9 @@ static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
 	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
 	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
 	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
 	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
 
 	HRESULT hr = self->swapchain->Present(1, 0);
 	if (hr != S_OK)
@@ -1100,6 +1102,48 @@ static PyObject* d3d12_Resource_upload2d(d3d12_Resource* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
+static PyObject* d3d12_Resource_upload_chunked(d3d12_Resource* self, PyObject* args)
+{
+	Py_buffer view;
+	UINT stride;
+	Py_buffer filler;
+	if (!PyArg_ParseTuple(args, "y*Iy*", &view, &stride, &filler))
+		return NULL;
+
+	size_t elements = view.len / stride;
+	size_t additional_bytes = elements * filler.len;
+
+	if (view.len + additional_bytes > self->size)
+	{
+		PyBuffer_Release(&view);
+		PyBuffer_Release(&filler);
+		return PyErr_Format(PyExc_ValueError, "supplied buffer is bigger than resource size: %llu (expected no more than %llu)", view.len + additional_bytes, self->size);
+	}
+
+	char* mapped_data;
+	HRESULT hr = self->resource->Map(0, NULL, (void**)&mapped_data);
+	if (hr != S_OK)
+	{
+		PyBuffer_Release(&view);
+		PyBuffer_Release(&filler);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to Map() ID3D12Resource1");
+	}
+
+	size_t offset = 0;
+	for (uint32_t i = 0; i < elements; i++)
+	{
+		memcpy(mapped_data + offset, (char*)view.buf + (i * stride), stride);
+		offset += stride;
+		memcpy(mapped_data + offset, (char*)filler.buf, filler.len);
+		offset += filler.len;
+	}
+
+	self->resource->Unmap(0, NULL);
+	PyBuffer_Release(&view);
+	PyBuffer_Release(&filler);
+	Py_RETURN_NONE;
+}
+
 static PyObject* d3d12_Resource_readback(d3d12_Resource* self, PyObject* args)
 {
 	SIZE_T size;
@@ -1306,7 +1350,9 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
 	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
 	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
 	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
 
 	Py_RETURN_NONE;
 }
@@ -1314,6 +1360,7 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 static PyMethodDef d3d12_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d12_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"upload2d", (PyCFunction)d3d12_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
+	{"upload_chunked", (PyCFunction)d3d12_Resource_upload_chunked, METH_VARARGS, "Upload bytes to a GPU Resource with the given stride and a filler"},
 	{"readback", (PyCFunction)d3d12_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
 	{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
 	{"readback2d", (PyCFunction)d3d12_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
@@ -1337,7 +1384,9 @@ static PyObject* d3d12_Compute_dispatch(d3d12_Compute* self, PyObject* args)
 	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
 	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
 	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
 	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
 
 	Py_RETURN_NONE;
 }

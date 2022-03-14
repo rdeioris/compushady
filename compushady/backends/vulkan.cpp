@@ -846,7 +846,9 @@ static bool vulkan_texture_set_layout(vulkan_Device * py_device, VkImage image, 
 	VkResult result = vkQueueSubmit(py_device->queue, 1, &submit_info, VK_NULL_HANDLE);
 	if (result == VK_SUCCESS)
 	{
+		Py_BEGIN_ALLOW_THREADS;
 		vkQueueWaitIdle(py_device->queue);
+		Py_END_ALLOW_THREADS;
 	}
 
 	return result == VK_SUCCESS;
@@ -1801,6 +1803,48 @@ static PyObject* vulkan_Resource_upload2d(vulkan_Resource * self, PyObject * arg
 	Py_RETURN_NONE;
 }
 
+static PyObject* vulkan_Resource_upload_chunked(vulkan_Resource * self, PyObject * args)
+{
+	Py_buffer view;
+	uint32_t stride;
+	Py_buffer filler;
+	if (!PyArg_ParseTuple(args, "y*Iy*", &view, &stride, &filler))
+		return NULL;
+
+	size_t elements = view.len / stride;
+	size_t additional_bytes = elements * filler.len;
+
+	if (view.len + additional_bytes > self->size)
+	{
+		PyBuffer_Release(&view);
+		PyBuffer_Release(&filler);
+		return PyErr_Format(PyExc_ValueError, "supplied buffer is bigger than resource size: %llu (expected no more than %llu)", view.len + additional_bytes, self->size);
+	}
+
+	char* mapped_data;
+	VkResult result = vkMapMemory(self->py_device->device, self->memory, 0, self->size, 0, (void**)&mapped_data);
+	if (result != VK_SUCCESS)
+	{
+		PyBuffer_Release(&view);
+		PyBuffer_Release(&filler);
+		return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
+	}
+
+	size_t offset = 0;
+	for (uint32_t i = 0; i < elements; i++)
+	{
+		memcpy(mapped_data + offset, (char*)view.buf + (i * stride), stride);
+		offset += stride;
+		memcpy(mapped_data + offset, (char*)filler.buf, filler.len);
+		offset += filler.len;
+	}
+
+	vkUnmapMemory(self->py_device->device, self->memory);
+	PyBuffer_Release(&view);
+	PyBuffer_Release(&filler);
+	Py_RETURN_NONE;
+}
+
 static PyObject* vulkan_Resource_readback(vulkan_Resource * self, PyObject * args)
 {
 	size_t size;
@@ -2016,7 +2060,9 @@ static PyObject* vulkan_Resource_copy_to(vulkan_Resource * self, PyObject * args
 
 	if (result == VK_SUCCESS)
 	{
+		Py_BEGIN_ALLOW_THREADS;
 		vkQueueWaitIdle(self->py_device->queue);
+		Py_END_ALLOW_THREADS;
 		Py_RETURN_NONE;
 	}
 
@@ -2026,6 +2072,7 @@ static PyObject* vulkan_Resource_copy_to(vulkan_Resource * self, PyObject * args
 static PyMethodDef vulkan_Resource_methods[] = {
 	{"upload", (PyCFunction)vulkan_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"upload2d", (PyCFunction)vulkan_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
+	{"upload_chunked", (PyCFunction)vulkan_Resource_upload_chunked, METH_VARARGS, "Upload bytes to a GPU Resource with the given stride and a filler"},
 	{"readback", (PyCFunction)vulkan_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
 	{"readback2d", (PyCFunction)vulkan_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	{"readback_to_buffer", (PyCFunction)vulkan_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
@@ -2135,7 +2182,9 @@ static PyObject* vulkan_Swapchain_present(vulkan_Swapchain * self, PyObject * ar
 
 	if (result == VK_SUCCESS)
 	{
+		Py_BEGIN_ALLOW_THREADS;
 		vkQueueWaitIdle(self->py_device->queue);
+		Py_END_ALLOW_THREADS;
 		Py_RETURN_NONE;
 	}
 
@@ -2170,7 +2219,9 @@ static PyObject* vulkan_Compute_dispatch(vulkan_Compute * self, PyObject * args)
 
 	if (result == VK_SUCCESS)
 	{
+		Py_BEGIN_ALLOW_THREADS;
 		vkQueueWaitIdle(self->py_device->queue);
+		Py_END_ALLOW_THREADS;
 		Py_RETURN_NONE;
 	}
 

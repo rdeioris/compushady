@@ -97,6 +97,9 @@ class Buffer(Resource):
     def upload2d(self, data, pitch, width, height, bytes_per_pixel):
         return self.handle.upload2d(data, pitch, width, height, bytes_per_pixel)
 
+    def upload_chunked(self, data, stride, filler):
+        return self.handle.upload_chunked(data, stride, filler)
+
     def readback(self, buffer_or_size=0, offset=0):
         if isinstance(buffer_or_size, int):
             return self.handle.readback(buffer_or_size, offset)
