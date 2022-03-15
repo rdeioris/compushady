@@ -71,11 +71,19 @@ if is_mac:
                               extra_link_args=['-Wl,-framework,MetalKit'],
                               ))
 
+spirv_cross_sources = [
+    'compushady/backends/spirv_cross/{0}'.format(source) for source in ['spirv_cross.cpp',
+                                                                        'spirv_cfg.cpp',
+                                                                        'spirv_cross_parsed_ir.cpp',
+                                                                        'spirv_parser.cpp',
+                                                                        'spirv_glsl.cpp']]
+
 backends.append(Extension('compushady.backends.dxc',
                           libraries=['d3dcompiler'] if is_windows else [],
                           depends=['compushady/backends/compushady.h'],
                           sources=['compushady/backends/dxc.cpp',
-                                   'compushady/backends/common.cpp'],
+                                   'compushady/backends/common.cpp',
+                                   'compushady/backends/spirv_cross/spirv_msl.cpp'] + spirv_cross_sources,
                           extra_compile_args=[
                               '-std=c++14'] if not is_windows else [],
                           ))

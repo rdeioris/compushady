@@ -2,6 +2,9 @@
 #include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <comdef.h>
 #include <d3dcompiler.h>
 #endif
@@ -9,6 +12,8 @@
 #include "dxcapi.h"
 
 #include "compushady.h"
+
+#include "spirv_cross/spirv_msl.hpp"
 
 static PyObject* dxc_generate_exception(HRESULT hr, const char* prefix)
 {
@@ -122,7 +127,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	}
 
 	std::vector<const wchar_t*> arguments;
-	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_SPIRV)
+	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_SPIRV || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_GLSL)
 	{
 		arguments.push_back(L"-spirv");
 		arguments.push_back(L"-fvk-t-shift");
@@ -195,14 +200,56 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		}
 	}
 #endif
-
-	PyObject* py_compiled_blob = PyBytes_FromStringAndSize((const char*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize());
+	PyObject* py_compiled_blob = NULL;
+	PyObject* py_exc = NULL;
+	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL)
+	{
+		try
+		{
+			spirv_cross::CompilerMSL msl((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
+			spirv_cross::CompilerMSL::Options options;
+			options.enable_decoration_binding = true;
+			msl.set_msl_options(options);
+			std::string msl_code = msl.compile();
+			py_compiled_blob = PyBytes_FromStringAndSize(msl_code.data(), msl_code.length());
+		}
+		catch (const std::exception& e)
+		{
+			py_exc = PyErr_Format(PyExc_Exception, "SPIRV-Cross: %s", e.what());
+		}
+	}
+	else if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_GLSL)
+	{
+		try
+		{
+			spirv_cross::CompilerGLSL glsl((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
+			std::string glsl_code = glsl.compile();
+			py_compiled_blob = PyBytes_FromStringAndSize(glsl_code.data(), glsl_code.length());
+		}
+		catch (const std::exception& e)
+		{
+			py_exc = PyErr_Format(PyExc_Exception, "SPIRV-Cross: %s", e.what());
+		}
+	}
+	else
+	{
+		py_compiled_blob = PyBytes_FromStringAndSize((const char*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize());
+	}
 
 	compiled_blob->Release();
 	result->Release();
 	blob_source->Release();
 	dxc_compiler->Release();
 	dxc_library->Release();
+
+	if (py_exc)
+	{
+		if (py_compiled_blob)
+		{
+			Py_DECREF(py_compiled_blob);
+		}
+		return py_exc;
+	}
 
 	return py_compiled_blob;
 }

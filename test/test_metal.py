@@ -1,4 +1,3 @@
-import numpy
 import struct
 import unittest
 from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK, Texture2D
@@ -9,7 +8,7 @@ compushady.config.set_debug(True)
 
 
 @unittest.skipIf(compushady.get_backend().name != 'metal', 'Tests meaningful only with Metal backend')
-class ComputeTests(unittest.TestCase):
+class MetalTests(unittest.TestCase):
 
     def test_simple_fill32(self):
         u0 = Texture2D(2, 2, R32G32B32A32_FLOAT)
