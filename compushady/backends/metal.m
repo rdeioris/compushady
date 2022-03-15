@@ -61,6 +61,7 @@ typedef struct metal_Swapchain
 {
     PyObject_HEAD;
     metal_Device* py_device;
+    CAMetalLayer* metal_layer;
 } metal_Swapchain;
 
 static void metal_MTLFunction_dealloc(metal_MTLFunction* self)
@@ -263,20 +264,26 @@ static PyTypeObject metal_Swapchain_Type = {
     "compushady metal Swapchain",                                           /* tp_doc */
 };
 
-static PyObject* compushady_create_metal_layer(PyObject* self, PyObject* args)
+static PyObject* compushady_create_metal_layer(metal_Device* self, PyObject* args)
 {
     NSWindow* window_handle;
-    if (!PyArg_ParseTuple(args, "K", &window_handle))
+    int format;
+    if (!PyArg_ParseTuple(args, "Ki", &window_handle, &format))
         return NULL;
+
+    if (metal_formats.find(format) == metal_formats.end())
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    }
     
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     CAMetalLayer* metal_layer = [CAMetalLayer layer];
     metal_layer.device = device;
-    metal_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    metal_layer.pixelFormat = metal_formats[format].first;
     metal_layer.framebufferOnly = YES;
     metal_layer.frame = [window_handle.contentView frame];
     window_handle.contentView.layer = metal_layer;
-    
+
     [device release];
     
     return PyLong_FromUnsignedLongLong((unsigned long long)metal_layer);
@@ -346,7 +353,6 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
     
     [compute_command_encoder endEncoding];
     
-    
     [compute_command_buffer commit];
     [compute_command_buffer waitUntilCompleted];
     
@@ -361,8 +367,58 @@ static PyMethodDef metal_Compute_methods[] = {
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
+static PyObject* metal_Swapchain_present(metal_Swapchain* self, PyObject* args)
+{
+        PyObject* py_resource;
+        NSUInteger x;
+        NSUInteger y;
+        if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
+                return NULL;
+
+        int ret = PyObject_IsInstance(py_resource, (PyObject*)&metal_Resource_Type);
+        if (ret < 0)
+        {
+                return NULL;
+        }
+        else if (ret == 0)
+        {
+                return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+        }
+        metal_Resource* src_resource = (metal_Resource*)py_resource;
+        if (!src_resource->texture)
+        {
+                return PyErr_Format(PyExc_ValueError, "Expected a Texture object");
+        }
+
+	id<CAMetalDrawable> drawable = [self->metal_layer nextDrawable];
+
+	id<MTLTexture> texture = drawable.texture;
+
+        //x = Py_MIN(x, self->desc.Width - 1);
+        //y = Py_MIN(y, self->desc.Height - 1);
+
+	id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
+	id<MTLBlitCommandEncoder> blit_command_encoder = [blit_command_buffer blitCommandEncoder];
+
+        [blit_command_encoder copyFromTexture:src_resource->texture toTexture:texture];
+
+    	[blit_command_encoder endEncoding];
+
+        [blit_command_buffer presentDrawable:drawable];
+
+    	[blit_command_buffer commit];
+    	[blit_command_buffer waitUntilCompleted];
+
+    	[blit_command_encoder release];
+    	[blit_command_buffer release];
+
+	[drawable release];
+
+        Py_RETURN_NONE;
+}
+
 static PyMethodDef metal_Swapchain_methods[] = {
-    //{"present", (PyCFunction)vulkan_Swapchain_present, METH_VARARGS, "Blit a texture resource to the Swapchain and present it"},
+    {"present", (PyCFunction)metal_Swapchain_present, METH_VARARGS, "Blit a texture resource to the Swapchain and present it"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -648,6 +704,40 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     return (PyObject*)py_resource;
 }
 
+static PyObject* metal_Device_create_swapchain(metal_Device* self, PyObject* args)
+{
+        CAMetalLayer* metal_layer;
+        int format;
+        uint32_t num_buffers;
+        if (!PyArg_ParseTuple(args, "KiI", &metal_layer, &format, &num_buffers))
+                return NULL;
+
+	if (metal_formats.find(format) == metal_formats.end())
+    	{
+        	return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    	}
+
+        metal_Device* py_device = metal_Device_get_device(self);
+        if (!py_device)
+                return NULL;
+
+        metal_Swapchain* py_swapchain = (metal_Swapchain*)PyObject_New(metal_Swapchain, &metal_Swapchain_Type);
+        if (!py_swapchain)
+        {
+                return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Swapchain");
+        }
+        COMPUSHADY_CLEAR(py_swapchain);
+        py_swapchain->py_device = py_device;
+        Py_INCREF(py_swapchain->py_device);
+
+	metal_layer.pixelFormat = metal_formats[format].first;
+	metal_layer.device = self->device;
+	py_swapchain->metal_layer = metal_layer;
+
+        return (PyObject*)py_swapchain;
+}
+
+
 static PyMethodDef metal_Device_methods[] = {
     {"create_buffer", (PyCFunction)metal_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
     {"create_texture2d", (PyCFunction)metal_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
@@ -655,6 +745,7 @@ static PyMethodDef metal_Device_methods[] = {
     {"create_texture3d", (PyCFunction)metal_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
     {"create_compute", (PyCFunction)metal_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
     {"get_debug_messages", (PyCFunction)metal_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
+    {"create_swapchain", (PyCFunction)metal_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -926,11 +1017,11 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
 }
 
 static PyMethodDef compushady_backends_metal_methods[] = {
-    {"create_metal_layer", (PyCFunction)compushady_create_metal_layer, METH_VARARGS, "Creates a CAMetalLayer on the default device"},
     {"msl_compile", (PyCFunction)compushady_msl_compile, METH_VARARGS, "Compile a MSL shader"},
     {"enable_debug", (PyCFunction)metal_enable_debug, METH_NOARGS, "Enable GPU debug mode"},
     {"get_shader_binary_type", (PyCFunction)metal_get_shader_binary_type, METH_NOARGS, "Returns the required shader binary type"},
     {"get_discovered_devices", (PyCFunction)metal_get_discovered_devices, METH_NOARGS, "Returns the list of discovered GPU devices"},
+    {"create_metal_layer", (PyCFunction)compushady_create_metal_layer, METH_VARARGS, "Creates a CAMetalLayer on the default Device"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
