@@ -167,9 +167,13 @@ window = glfw.create_window(
 if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
         window), compushady.formats.B8G8R8A8_UNORM, 3)
+elif platform.system() == 'Darwin':
+    from compushady.backends.metal import create_metal_layer
+    ca_metal_layer = create_metal_layer(glfw.get_cocoa_window(window), compushady.formats.B8G8R8A8_UNORM)
+    swapchain = compushady.Swapchain(ca_metal_layer, compushady.formats.B8G8R8A8_UNORM, 3)
 else:
     swapchain = compushady.Swapchain((glfw.get_x11_display(), glfw.get_x11_window(
-        window)), compushady.formats.B8G8R8A8_UNORM, 5)
+        window)), compushady.formats.B8G8R8A8_UNORM, 3)
 
 
 running = True

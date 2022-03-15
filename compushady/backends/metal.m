@@ -352,7 +352,7 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
     [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
     
     [compute_command_encoder endEncoding];
-    
+
     [compute_command_buffer commit];
     [compute_command_buffer waitUntilCompleted];
     
@@ -408,6 +408,11 @@ static PyObject* metal_Swapchain_present(metal_Swapchain* self, PyObject* args)
 
     	[blit_command_buffer commit];
     	[blit_command_buffer waitUntilCompleted];
+
+	/*id<MTLCommandBuffer> present_command_buffer = [self->py_device->command_queue commandBuffer];
+        [present_command_buffer presentDrawable:drawable];
+    	[present_command_buffer commit];
+    	[present_command_buffer waitUntilCompleted];*/
 
     	[blit_command_encoder release];
     	[blit_command_buffer release];
@@ -504,7 +509,7 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     }
     
     metal_MTLFunction* mtl_function = (metal_MTLFunction*)py_msl;
-    
+
     metal_Device* py_device = metal_Device_get_device(self);
     if (!py_device)
         return NULL;
@@ -523,7 +528,7 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->uav = std::vector<metal_Resource*>();
     
     py_compute->py_mtl_function = mtl_function;
-    Py_DECREF(py_compute->py_mtl_function);
+    Py_INCREF(py_compute->py_mtl_function);
     
     if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv, py_srv, py_compute->srv, py_uav, py_compute->uav))
     {
@@ -803,6 +808,40 @@ static PyObject* metal_Resource_upload2d(metal_Resource* self, PyObject* args)
     Py_RETURN_NONE;
 }
 
+static PyObject* metal_Resource_upload_chunked(metal_Resource* self, PyObject* args)
+{
+        Py_buffer view;
+        NSUInteger stride;
+        Py_buffer filler;
+        if (!PyArg_ParseTuple(args, "y*Iy*", &view, &stride, &filler))
+                return NULL;
+
+        size_t elements = view.len / stride;
+        size_t additional_bytes = elements * filler.len;
+
+        if (view.len + additional_bytes > self->size)
+        {
+                PyBuffer_Release(&view);
+                PyBuffer_Release(&filler);
+                return PyErr_Format(PyExc_ValueError, "supplied buffer is bigger than resource size: %llu (expected no more than %llu)", view.len + additional_bytes, self->size);
+        }
+
+        char* mapped_data = (char*)[self->buffer contents];
+
+        size_t offset = 0;
+        for (uint32_t i = 0; i < elements; i++)
+        {
+                memcpy(mapped_data + offset, (char*)view.buf + (i * stride), stride);
+                offset += stride;
+                memcpy(mapped_data + offset, (char*)filler.buf, filler.len);
+                offset += filler.len;
+        }
+
+        PyBuffer_Release(&view);
+        PyBuffer_Release(&filler);
+        Py_RETURN_NONE;
+}
+
 static PyObject* metal_Resource_readback(metal_Resource * self, PyObject * args)
 {
     size_t size;
@@ -907,6 +946,7 @@ static PyObject* metal_Resource_copy_to(metal_Resource * self, PyObject * args)
 static PyMethodDef metal_Resource_methods[] = {
     {"upload", (PyCFunction)metal_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
     {"upload2d", (PyCFunction)metal_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
+    {"upload_chunked", (PyCFunction)metal_Resource_upload_chunked, METH_VARARGS, "Upload bytes to a GPU Resource with the given stride and a filler"},
     {"readback", (PyCFunction)metal_Resource_readback, METH_VARARGS, "Readback bytes from a GPU Resource"},
     {"readback_to_buffer", (PyCFunction)metal_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
     {"copy_to", (PyCFunction)metal_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},

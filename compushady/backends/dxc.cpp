@@ -211,7 +211,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			options.enable_decoration_binding = true;
 			msl.set_msl_options(options);
 			std::string msl_code = msl.compile();
-			py_compiled_blob = PyBytes_FromStringAndSize(msl_code.data(), msl_code.length());
+			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), 8, 8, 1);
 		}
 		catch (const std::exception& e)
 		{

@@ -1,5 +1,5 @@
 from compushady.backends import dxc
-from compushady import get_backend
+from compushady import get_backend, SHADER_BINARY_TYPE_MSL
 import os
 import platform
 
@@ -22,4 +22,10 @@ elif platform.system() == 'Darwin':
 
 
 def compile(source, entry_point='main'):
-    return dxc.compile(source, entry_point, get_backend().get_shader_binary_type())
+    blob = dxc.compile(source, entry_point, get_backend().get_shader_binary_type())
+    if get_backend().get_shader_binary_type() == SHADER_BINARY_TYPE_MSL:
+        from compushady.backends import metal
+        if entry_point == 'main':
+            entry_point = 'main0'
+        return metal.msl_compile(blob[0], entry_point, blob[1])
+    return blob
