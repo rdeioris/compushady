@@ -23,7 +23,7 @@ kernel void main0(texture2d<float, access::write> input [[texture(0)]])
 {
     input.write(float4(1.0, 2.0, 3.0, 4.0), uint2(0, 0));
 }
-        """, 'main0')
+        """, (1, 1, 1), 'main0')
         compute = Compute(shader, uav=[u0])
         compute.dispatch(1, 1, 1)
         u0.copy_to(b0)

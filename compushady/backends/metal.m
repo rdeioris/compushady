@@ -38,6 +38,9 @@ typedef struct metal_MTLFunction
 {
     PyObject_HEAD;
     id<MTLFunction> function;
+    NSUInteger x;
+    NSUInteger y;
+    NSUInteger z;
 } metal_MTLFunction;
 
 typedef struct metal_Compute
@@ -311,7 +314,7 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
         [compute_command_encoder setTexture:py_resource->texture atIndex:i];
     }
     
-    [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(8, 8, 8)];
+    [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
     
     [compute_command_encoder endEncoding];
     
@@ -838,7 +841,10 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
 {
     Py_buffer view;
     PyObject* py_entry_point;
-    if (!PyArg_ParseTuple(args, "s*U", &view, &py_entry_point))
+    NSUInteger x;
+    NSUInteger y;
+    NSUInteger z;
+    if (!PyArg_ParseTuple(args, "s*U(III)", &view, &py_entry_point, &x, &y, &z))
         return NULL;
     
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -876,6 +882,10 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
     }
     COMPUSHADY_CLEAR(py_mtl_function);
     py_mtl_function->function = function;
+
+    py_mtl_function->x = x;
+    py_mtl_function->y = y;
+    py_mtl_function->z = z;
     
     [function_name release];
     
