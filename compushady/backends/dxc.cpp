@@ -131,10 +131,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	{
 		arguments.push_back(L"-spirv");
 		arguments.push_back(L"-fvk-t-shift");
-		arguments.push_back(L"1024");
+		arguments.push_back(L"32");
 		arguments.push_back(L"0");
 		arguments.push_back(L"-fvk-u-shift");
-		arguments.push_back(L"2048");
+		arguments.push_back(L"64");
 		arguments.push_back(L"0");
 	}
 

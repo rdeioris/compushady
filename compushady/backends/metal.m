@@ -307,11 +307,39 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
     id<MTLComputeCommandEncoder> compute_command_encoder = [compute_command_buffer computeCommandEncoder];
     
     [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
+
+    NSUInteger index = 0;
+
+    for(size_t i = 0; i < self->cbv.size(); i++)
+    {
+        metal_Resource* py_resource = self->cbv[i];
+        if (py_resource->texture)
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+	else
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
+	index++;
+    }
+
+    index = 32;
+    for(size_t i = 0; i < self->srv.size(); i++)
+    {
+        metal_Resource* py_resource = self->srv[i];
+        if (py_resource->texture)
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+	else
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
+	index++;
+    }
     
+    index = 64;
     for(size_t i = 0; i < self->uav.size(); i++)
     {
         metal_Resource* py_resource = self->uav[i];
-        [compute_command_encoder setTexture:py_resource->texture atIndex:i];
+        if (py_resource->texture)
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+	else
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
+	index++;
     }
     
     [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
@@ -457,7 +485,6 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     {
         metal_Resource* py_resource = py_compute->cbv[i];
         PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
-        //[py_compute->compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:i];
     }
     
     for (size_t i = 0; i<py_compute->srv.size();i++)

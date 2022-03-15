@@ -1237,7 +1237,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 		layout_bindings.push_back(layout_binding);
 	}
 
-	binding_offset = 1024;
+	binding_offset = 32;
 	for (vulkan_Resource* py_resource : srv)
 	{
 		VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -1277,7 +1277,7 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 		layout_bindings.push_back(layout_binding);
 	}
 
-	binding_offset = 2048;
+	binding_offset = 64;
 	for (vulkan_Resource* py_resource : uav)
 	{
 		VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;

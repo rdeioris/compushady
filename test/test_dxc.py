@@ -19,9 +19,9 @@ class DXCTests(unittest.TestCase):
         }
         """, 'main', SHADER_BINARY_TYPE_GLSL)
         self.assertTrue(
-            b'layout(binding = 1024) uniform samplerBuffer _input;' in glsl)
+            b'layout(binding = 32) uniform samplerBuffer _input;' in glsl)
         self.assertTrue(
-            b'layout(binding = 2048, rgba32f) uniform writeonly image2D _output;' in glsl)
+            b'layout(binding = 64, rgba32f) uniform writeonly image2D _output;' in glsl)
 
     def test_to_msl(self):
         msl = hlsl.dxc.compile("""
@@ -33,5 +33,5 @@ class DXCTests(unittest.TestCase):
             output[tid.xy] = input[tid.z] * 2;
         }
         """, 'main', SHADER_BINARY_TYPE_MSL)
-        self.assertTrue(b'_input [[texture(1024)]]' in msl)
-        self.assertTrue(b'_output [[texture(2048)]]' in msl)
+        self.assertTrue(b'_input [[texture(32)]]' in msl)
+        self.assertTrue(b'_output [[texture(64)]]' in msl)
