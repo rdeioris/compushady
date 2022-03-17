@@ -9,9 +9,10 @@ import math
 
 compushady.config.set_debug(True)
 
-print('Using device', compushady.get_current_device().name)
+print('Using device', compushady.get_current_device().name,
+      'with backend', compushady.get_backend().name)
 
-target = compushady.Texture2D(1024, 1024, compushady.formats.B8G8R8A8_UNORM)
+target = compushady.Texture2D(768, 768, compushady.formats.B8G8R8A8_UNORM)
 
 config = compushady.Buffer(16, compushady.HEAP_UPLOAD) # use 16 to make d3d11 happy...
 

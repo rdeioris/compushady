@@ -26,21 +26,21 @@ typedef struct metal_Resource
     metal_Device* py_device;
     id<MTLBuffer> buffer;
     id<MTLTexture> texture;
-    NSUInteger size;
-    NSUInteger stride;
-    NSUInteger row_pitch;
-    NSUInteger width;
-    NSUInteger height;
-    NSUInteger depth;
+    uint32_t size;
+    uint32_t stride;
+    uint32_t row_pitch;
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
 } metal_Resource;
 
 typedef struct metal_MTLFunction
 {
     PyObject_HEAD;
     id<MTLFunction> function;
-    NSUInteger x;
-    NSUInteger y;
-    NSUInteger z;
+    uint32_t x;
+    uint32_t y;
+    uint32_t z;
 } metal_MTLFunction;
 
 typedef struct metal_Compute
@@ -315,7 +315,7 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
     
     [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
 
-    NSUInteger index = 0;
+    uint32_t index = 0;
 
     for(size_t i = 0; i < self->cbv.size(); i++)
     {
@@ -348,7 +348,7 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
         	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
 	index++;
     }
-    
+
     [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
     
     [compute_command_encoder endEncoding];
@@ -370,8 +370,8 @@ static PyMethodDef metal_Compute_methods[] = {
 static PyObject* metal_Swapchain_present(metal_Swapchain* self, PyObject* args)
 {
         PyObject* py_resource;
-        NSUInteger x;
-        NSUInteger y;
+        uint32_t x;
+        uint32_t y;
         if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
                 return NULL;
 
@@ -409,11 +409,6 @@ static PyObject* metal_Swapchain_present(metal_Swapchain* self, PyObject* args)
     	[blit_command_buffer commit];
     	[blit_command_buffer waitUntilCompleted];
 
-	/*id<MTLCommandBuffer> present_command_buffer = [self->py_device->command_queue commandBuffer];
-        [present_command_buffer presentDrawable:drawable];
-    	[present_command_buffer commit];
-    	[present_command_buffer waitUntilCompleted];*/
-
     	[blit_command_encoder release];
     	[blit_command_buffer release];
 
@@ -447,12 +442,21 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
     
     if (!size)
         return PyErr_Format(Compushady_BufferError, "zero size buffer");
+
+    if (format > 0)
+    {
+        if (metal_formats.find(format) == metal_formats.end())
+        {
+            return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+        }
+    }
     
     metal_Device* py_device = metal_Device_get_device(self);
     if (!py_device)
         return NULL;
     
     MTLResourceOptions options = MTLResourceStorageModePrivate;
+    MTLStorageMode storage_mode = MTLStorageModePrivate;
     
     switch (heap)
     {
@@ -460,9 +464,11 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
             break;
         case COMPUSHADY_HEAP_UPLOAD:
             options = MTLResourceStorageModeShared;
+            storage_mode = MTLStorageModeShared;
             break;
         case COMPUSHADY_HEAP_READBACK:
             options = MTLResourceStorageModeShared;
+            storage_mode = MTLStorageModeShared;
             break;
         default:
             return PyErr_Format(PyExc_Exception, "Invalid heap type: %d", heap);
@@ -482,7 +488,31 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
     py_resource->buffer = buffer;
     py_resource->size = size;
     py_resource->stride = stride;
+
+    if (format > 0)
+    {
+        MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor new];
+        texture_descriptor.textureType = MTLTextureType2D;
+        texture_descriptor.pixelFormat = metal_formats[format].first;
+        texture_descriptor.arrayLength = 1;
+        texture_descriptor.mipmapLevelCount = 1;
+        texture_descriptor.width = size / metal_formats[format].second;
+        texture_descriptor.height = 1;
+        texture_descriptor.depth = 1;
+        texture_descriptor.sampleCount = 1;
+        texture_descriptor.storageMode = storage_mode;
+        texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
+        texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     
+        py_resource->texture = [py_resource->buffer newTextureWithDescriptor:texture_descriptor offset:0 bytesPerRow:COMPUSHADY_ALIGN(size, 16)];
+        py_resource->row_pitch = size;
+        py_resource->width = texture_descriptor.width;
+        py_resource->height = 1;
+        py_resource->depth = 1;
+    
+        [texture_descriptor release];
+    }
+ 
     return (PyObject*)py_resource;
 }
 
@@ -541,6 +571,11 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->py_uav_list = PyList_New(0);
     
     py_compute->compute_pipeline_state = [py_device->device newComputePipelineStateWithFunction:mtl_function->function error:nil];
+    if (!py_compute->compute_pipeline_state)
+    {
+        Py_DECREF(py_compute);
+        return PyErr_Format(PyExc_Exception, "unable to create metal ComputePipelineState");
+    }
     
     for (size_t i = 0; i<py_compute->cbv.size();i++)
     {
@@ -559,7 +594,7 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
         metal_Resource* py_resource = py_compute->uav[i];
         PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
     }
-    
+
     return (PyObject*)py_compute;
 }
 
@@ -597,7 +632,7 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     py_resource->py_device = py_device;
     Py_INCREF(py_resource->py_device);
     
-    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor new];
     texture_descriptor.textureType = MTLTextureType2D;
     texture_descriptor.pixelFormat = metal_formats[format].first;
     texture_descriptor.arrayLength = 1;
@@ -606,10 +641,18 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     texture_descriptor.height = height;
     texture_descriptor.depth = 1;
     texture_descriptor.storageMode = MTLStorageModePrivate;
+    texture_descriptor.resourceOptions = MTLResourceStorageModePrivate;
     texture_descriptor.sampleCount = 1;
     texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
+    texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
+    if (!py_resource->texture)
+    {
+        [texture_descriptor release];
+	Py_DECREF(py_resource);
+        return PyErr_Format(PyExc_Exception, "unable to create metal Texture");
+    }
     py_resource->row_pitch = width * metal_formats[format].second;
     py_resource->width = width;
     py_resource->height = height;
@@ -641,7 +684,7 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     py_resource->py_device = py_device;
     Py_INCREF(py_resource->py_device);
     
-    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor new];
     texture_descriptor.textureType = MTLTextureType1D;
     texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
     texture_descriptor.arrayLength = 1;
@@ -649,8 +692,10 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     texture_descriptor.width = width;
     texture_descriptor.height = 1;
     texture_descriptor.depth = 1;
+    texture_descriptor.resourceOptions = MTLResourceStorageModePrivate;
     texture_descriptor.sampleCount = 1;
     texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
+    texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
     py_resource->row_pitch = width * 4;
@@ -686,7 +731,7 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     py_resource->py_device = py_device;
     Py_INCREF(py_resource->py_device);
     
-    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor alloc];
+    MTLTextureDescriptor *texture_descriptor = [MTLTextureDescriptor new];
     texture_descriptor.textureType = MTLTextureType3D;
     texture_descriptor.pixelFormat = MTLPixelFormatRGBA8Unorm;
     texture_descriptor.arrayLength = 1;
@@ -694,8 +739,10 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     texture_descriptor.width = width;
     texture_descriptor.height = height;
     texture_descriptor.depth = depth;
+    texture_descriptor.resourceOptions = MTLResourceStorageModePrivate;
     texture_descriptor.sampleCount = 1;
     texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
+    texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     
     py_resource->texture = [py_device->device newTextureWithDescriptor:texture_descriptor];
     py_resource->row_pitch = width * 4;
@@ -780,10 +827,10 @@ static PyObject* metal_Resource_upload(metal_Resource* self, PyObject* args)
 static PyObject* metal_Resource_upload2d(metal_Resource* self, PyObject* args)
 {
     Py_buffer view;
-    NSUInteger pitch;
-    NSUInteger width;
-    NSUInteger height;
-    NSUInteger bytes_per_pixel;
+    uint32_t pitch;
+    uint32_t width;
+    uint32_t height;
+    uint32_t bytes_per_pixel;
     if (!PyArg_ParseTuple(args, "y*IIII", &view, &pitch, &width, &height, &bytes_per_pixel))
         return NULL;
     
@@ -792,7 +839,7 @@ static PyObject* metal_Resource_upload2d(metal_Resource* self, PyObject* args)
     size_t offset = 0;
     size_t remains = view.len;
     size_t resource_remains = self->size;
-    for (NSUInteger y = 0; y < height; y++)
+    for (uint32_t y = 0; y < height; y++)
     {
         size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
         memcpy(mapped_data + (pitch * y), (char*)view.buf + offset, amount);
@@ -811,7 +858,7 @@ static PyObject* metal_Resource_upload2d(metal_Resource* self, PyObject* args)
 static PyObject* metal_Resource_upload_chunked(metal_Resource* self, PyObject* args)
 {
         Py_buffer view;
-        NSUInteger stride;
+        uint32_t stride;
         Py_buffer filler;
         if (!PyArg_ParseTuple(args, "y*Iy*", &view, &stride, &filler))
                 return NULL;
@@ -969,7 +1016,6 @@ static PyObject* metal_get_discovered_devices(PyObject * self)
         }
         COMPUSHADY_CLEAR(py_device);
         
-        [device retain];
         py_device->device = device;
         py_device->name = PyUnicode_FromString([[device name] UTF8String]);
         py_device->dedicated_video_memory = [device hasUnifiedMemory] ? 0 : [device recommendedMaxWorkingSetSize];
@@ -999,9 +1045,9 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
 {
     Py_buffer view;
     PyObject* py_entry_point;
-    NSUInteger x;
-    NSUInteger y;
-    NSUInteger z;
+    uint32_t x;
+    uint32_t y;
+    uint32_t z;
     if (!PyArg_ParseTuple(args, "s*U(III)", &view, &py_entry_point, &x, &y, &z))
         return NULL;
     
@@ -1010,7 +1056,7 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
     NSString* source = [[NSString alloc] initWithBytes:view.buf length:view.len encoding:NSUTF8StringEncoding];
     
     NSError *error = nil;
-    
+
     id<MTLLibrary> library = [device newLibraryWithSource:source options:NULL error:&error];
     if (!library)
     {
@@ -1032,7 +1078,7 @@ static PyObject* compushady_msl_compile(PyObject* self, PyObject* args)
     {
         return PyErr_Format(PyExc_Exception, "unable to find function %s in MTLLibrary",function_name_utf8);
     }
-    
+
     metal_MTLFunction* py_mtl_function = (metal_MTLFunction*)PyObject_New(metal_MTLFunction, &metal_MTLFunction_Type);
     if (!py_mtl_function)
     {

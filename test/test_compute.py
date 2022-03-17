@@ -44,6 +44,30 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(struct.unpack('II', b1.readback()),
                          (0xdeadbeef, 0xdeadbeef))
 
+    def test_simple_struct(self):
+        b0 = Buffer(16)
+        b1 = Buffer(b0.size, HEAP_READBACK)
+        shader = hlsl.compile("""
+        struct Block
+        {
+            uint a;
+            uint b;
+        };
+        RWStructuredBuffer<Block> buffer : register(u0);
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            buffer[tid.x].a = 0xdeadbeef;
+            buffer[tid.x].b = 0xbeefdead;
+        }
+        """)
+        compute = Compute(shader, uav=[b0])
+        compute.dispatch(2, 1, 1)
+        b0.copy_to(b1)
+        self.assertEqual(struct.unpack('IIII', b1.readback()),
+                         (0xdeadbeef, 0xbeefdead, 0xdeadbeef, 0xbeefdead))
+
+
     def test_simple_fill_float16(self):
         b0 = Buffer(32, format=R16G16B16A16_FLOAT)
         b1 = Buffer(32, HEAP_READBACK)

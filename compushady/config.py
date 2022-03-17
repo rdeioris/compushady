@@ -11,6 +11,8 @@ if compushady_backend_env in os.environ:
 else:
     if platform.system() == 'Windows':
         wanted_backend = 'd3d12'
+    elif platform.system() == 'Darwin':
+        wanted_backend = 'metal'
     else:
         wanted_backend = 'vulkan'
 
