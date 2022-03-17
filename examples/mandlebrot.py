@@ -52,7 +52,6 @@ void main(int3 tid : SV_DispatchThreadID)
 }
 """)
 
-print(shader)
 
 compute = compushady.Compute(shader, cbv=[config_fast], uav=[target])
 

@@ -25,39 +25,6 @@ static PyObject* dxc_generate_exception(HRESULT hr, const char* prefix)
 #endif
 }
 
-static bool vulkan_get_spirv_local_size(const uint32_t* words, size_t len, uint32_t* x, uint32_t* y, uint32_t* z)
-{
-	if (len < 20) // strip SPIR-V header
-		return false;
-	if (len % 4) // SPIR-V is a stream of 32bits words
-		return false;
-	if (words[0] != 0x07230203) // SPIR-V magic
-		return false;
-
-	size_t offset = 5; // (20 / 4 of SPIR-V header)
-	size_t words_num = len / 4;
-	while (offset < words_num)
-	{
-		uint32_t word = words[offset];
-		uint16_t opcode = word & 0xFFFF;
-		uint16_t size = word >> 16;
-		if (size == 0) // avoid loop!
-			return false;
-		if (opcode == 16 && (offset + size < words_num) && size >= 6) // OpExecutionMode(16) + LocalSize(17) + x + y + z
-		{
-			if (words[offset + 2] == 17)
-			{
-				*x = words[offset + 3];
-				*y = words[offset + 4];
-				*z = words[offset + 5];
-				return true;
-			}
-		}
-		offset += size;
-	}
-	return false;
-}
-
 static PyObject* dxc_compile(PyObject* self, PyObject* args)
 {
 	Py_buffer view;

@@ -1552,8 +1552,8 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		return PyErr_Format(PyExc_ValueError, "window handle must be a tuple");
 	}
 
-	unsigned long long display;
-	unsigned long long window;
+	void* display;
+	void* window;
 
 	if (!PyArg_ParseTuple(py_window_handle, "KK", &display, &window))
 	{

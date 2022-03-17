@@ -1,8 +1,14 @@
 import pyglet
+import platform
 import struct
+from ctypes import addressof,pointer
+import ctypes
 from compushady import HEAP_UPLOAD, Swapchain, Compute, Texture2D, Buffer
 from compushady.formats import B8G8R8A8_UNORM
 from compushady.shaders import hlsl
+
+if platform.system() != 'Windows':
+    raise Exception('only Windows is supported for this example')
 
 window = pyglet.window.Window()
 
