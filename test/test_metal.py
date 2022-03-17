@@ -19,7 +19,7 @@ class MetalTests(unittest.TestCase):
 
 using namespace metal;
 
-kernel void main0(texture2d<float, access::write> input [[texture(64)]])
+kernel void main0(texture2d<float, access::write> input [[texture(0)]])
 {
     input.write(float4(1.0, 2.0, 3.0, 4.0), uint2(0, 0));
 }

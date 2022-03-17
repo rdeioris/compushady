@@ -26,7 +26,7 @@ typedef struct metal_Resource
     metal_Device* py_device;
     id<MTLBuffer> buffer;
     id<MTLTexture> texture;
-    uint32_t size;
+    size_t size;
     uint32_t stride;
     uint32_t row_pitch;
     uint32_t width;
@@ -315,38 +315,34 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
     
     [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
 
-    uint32_t index = 0;
+    uint32_t buffer_index = 0;
+    uint32_t texture_index = 0;
 
     for(size_t i = 0; i < self->cbv.size(); i++)
     {
         metal_Resource* py_resource = self->cbv[i];
         if (py_resource->texture)
-        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
 	else
-        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
-	index++;
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
     }
 
-    index = 32;
     for(size_t i = 0; i < self->srv.size(); i++)
     {
         metal_Resource* py_resource = self->srv[i];
         if (py_resource->texture)
-        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
 	else
-        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
-	index++;
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
     }
     
-    index = 64;
     for(size_t i = 0; i < self->uav.size(); i++)
     {
         metal_Resource* py_resource = self->uav[i];
         if (py_resource->texture)
-        	[compute_command_encoder setTexture:py_resource->texture atIndex:index];
+        	[compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
 	else
-        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:index];
-	index++;
+        	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
     }
 
     [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
@@ -475,6 +471,10 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
     }
     
     id<MTLBuffer> buffer = [py_device->device newBufferWithLength:size options:options];
+    if (!buffer)
+    {
+        return PyErr_Format(Compushady_BufferError, "unable to create metal Buffer");
+    }
     
     metal_Resource* py_resource = (metal_Resource*)PyObject_New(metal_Resource, &metal_Resource_Type);
     if (!py_resource)
@@ -895,7 +895,7 @@ static PyObject* metal_Resource_readback(metal_Resource * self, PyObject * args)
     size_t offset;
     if (!PyArg_ParseTuple(args, "KK", &size, &offset))
         return NULL;
-    
+
     if (size == 0)
         size = self->size - offset;
     
@@ -903,9 +903,9 @@ static PyObject* metal_Resource_readback(metal_Resource * self, PyObject * args)
     {
         return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: (offset %llu) %llu (expected no more than %llu)", offset, size, self->size);
     }
-    
+
     char* mapped_data = (char*)[self->buffer contents];
-    
+
     PyObject* py_bytes = PyBytes_FromStringAndSize(mapped_data + offset, size);
     
     return py_bytes;
