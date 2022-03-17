@@ -3,6 +3,8 @@ Python module for easily running Compute Shaders
 
 ![compushadyMandlebrot](compushady_mandlebrot.gif?raw=true "compushady Mandlebrot")
 
+Join the Discord server for support: https://discord.gg/EFvWaaxdR4
+
 Currently d3d12 (Windows), vulkan (Linux, Mac and Windows), metal (Mac), and d3d11 (Windows) are supported. 
 
 You can write shaders in HLSL and they will be compiled into the appropriate format (DXIL, DXBC, SPIR-V, MSL ...) automatically (using the DXC compiler included in the module as well as SPIRV-Cross).
