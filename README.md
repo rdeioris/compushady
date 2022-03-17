@@ -210,7 +210,8 @@ void main()
 You can create a 'structured' buffer by passing the `stride` option with the size of the structure:
 
 ```py
-structured_buffer = Buffer(size=16, stride=8) # will create a buffer of 16 bytes, divided in two structures of 8 bytes each (the struct Data)
+# will create a buffer of 16 bytes, divided in two structures of 8 bytes each (the struct Data)
+structured_buffer = Buffer(size=16, stride=8)
 ```
 
 Or you can use a typed buffer:
@@ -228,7 +229,8 @@ void main()
 For which you can specify the format parameter:
 
 ```py
-typed_buffer = Buffer(size=32, format=compushady.formats.R32G32B32A32_FLOAT) # will create a buffer of 32 bytes, divided in two 16 bytes blocks, each one representing 4 32bits float values)
+# will create a buffer of 32 bytes, divided in two 16 bytes blocks, each one representing 4 32bits float values)
+typed_buffer = Buffer(size=32, format=compushady.formats.R32G32B32A32_FLOAT)
 ```
 
 ## compushady.Texture2D
