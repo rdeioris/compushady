@@ -158,6 +158,13 @@ A compushady.Device object has the following fields:
 * ```is_hardware```: True if it is a hardware devices (not an emulated one)
 * ```is_discrete```: True if it is a discrete adapter (a dedicated GPU)
 
+The ```compushady.get_current_device()``` function returns the currently set GPU device, you can override the current device using ```compushady.set_current_device(index)``` where 'index' is the index of one of the elements returned by ```compushady.get_discovered_devices()```.
+You can change the current device even from the command line using the ```COMPUSHADY_DEVICE``` environment variable:
+
+```sh
+COMPUSHADY_DEVICE=2 python3 your_gpu_app.py
+```
+
 ## compushady.Buffer
 
 This class represents a resource accessible by the GPU that can be in system RAM or GPU dedicated memory.
