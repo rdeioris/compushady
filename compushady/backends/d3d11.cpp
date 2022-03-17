@@ -357,6 +357,10 @@ static PyObject* d3d11_Device_create_buffer(d3d11_Device* self, PyObject* args)
 
 	buffer_desc.ByteWidth = (UINT)size;
 	buffer_desc.StructureByteStride = stride;
+	if (stride > 0)
+	{
+		buffer_desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+	}
 
 	ID3D11Buffer* buffer;
 	HRESULT hr = py_device->device->CreateBuffer(&buffer_desc, NULL, &buffer);
