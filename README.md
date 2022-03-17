@@ -185,6 +185,8 @@ Buffers created with HEAP_UPLOAD exposes the ```upload(data, offset=0)``` and ``
 
 Bufers created with HEAP_READBACK exposes the ```readback(size=0, offset=0)```, ```readback2d(row_pitch, height, bytes_per_pixel)``` and ```readback_to_buffer(buffer, offset=0)``` methods
 
+Buffers expose the ```size``` property returning the size in bytes.
+
 Buffer can even be `structured` and `formatted`:
 
 This is an HLSL shader using a StructuredBuffer object
@@ -211,6 +213,24 @@ You can create a 'structured' buffer by passing the `stride` option with the siz
 structured_buffer = Buffer(size=16, stride=8) # will create a buffer of 16 bytes, divided in two structures of 8 bytes each (the struct Data)
 ```
 
+Or you can use a typed buffer:
+
+```hlsl
+RWBuffer<float4> buffer: register(u0);
+[numthreads(1, 1, 1)]
+void main()
+{
+    buffer[0] = float4(1, 2, 3, 4);
+    buffer[1] = float4(5, 6, 7, 8);
+}
+```
+
+For which you can specify the format parameter:
+
+```py
+typed_buffer = Buffer(size=32, format=compushady.formats.R32G32B32A32_FLOAT) # will create a buffer of 32 bytes, divided in two 16 bytes blocks, each one representing 4 32bits float values)
+```
+
 ## compushady.Texture2D
 
 A Texture2D object is a bidimensional (width and height) texture available in the GPU memory. You can read it from your Compute shader or blit it to a Swapchain.
@@ -235,18 +255,84 @@ from compushady.formats import R8G8B8A8_UINT
 texture = compushady.Texture3D(1024, 1024, 4, R8G8B8A8_UINT) # you can see it as 4 1024x1024 textures
 ```
 
+All of the textures types expose the following properties:
+
+* width
+* height
+* depth
+* row_pitch (bytes for each line)
+* size (dimension of the texture in bytes)
+
 ## compushady.Compute
 
 To build a Compute object (the one running the compute shader), you need (obviously) a shader blob (you can build it using the ```compushady.shaders.hlsl.compile``` function) and the resources (buffers and textures) you want to manage in the shader itself.
 
 Note: while on DirectX based backends you need a DXIL/DXCB shader blob, on Vulkan any shader compiler able to generate SPIR-V blobs will be good for compushady (you can even precompile your shaders and store the SPIR-V blobs on files that you can load in compushady)
 
-compushady uses the DirectX12 naming conventions: ```CBV``` (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), ```SRV``` (Shader Resource View) for buffer and textures you need to read in the shader, and ```UAV``` (Unordered Access View) for buffers and textures that need to be written by the shader.
+compushady uses the DirectX12 naming conventions: ```CBV``` (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), ```SRV``` (Shader Resource View) for buffers and textures you need to read in the shader, and ```UAV``` (Unordered Access View) for buffers and textures that need to be written by the shader.
+
+This is a quick Compute object implementing a copy from a texture (the SRV, filled with random data uploaded in a buffer) to another one (the UAV) doubling pixel values:
+
+```py
+from compushady import HEAP_UPLOAD, Buffer, Texture2D, Compute
+from compushady.formats import R8G8B8A8_UINT
+from compushady.shaders import hlsl
+import random
+
+source_texture = Texture2D(512, 512, R8G8B8A8_UINT)
+destination_texture = Texture2D(512, 512, R8G8B8A8_UINT)
+
+staging_buffer = Buffer(source_texture.size, HEAP_UPLOAD)
+staging_buffer.upload(bytes([random.randint(0, 255) for i in range(source_texture.size)]))
+
+staging_buffer.copy_to(source_texture)
+
+shader = """
+Texture2D<uint4> source : register(t0);
+RWTexture2D<uint4> destination : register(u0);
+
+[numthreads(8,8,1)]
+void main(uint3 tid : SV_DispatchThreadID)
+{
+    destination[tid.xy] = source[tid.xy] * 2;
+}
+"""
+
+compute = Compute(hlsl.compile(shader), srv=[source_texture], uav=[destination_texture])
+compute.dispatch(source_texture.width // 8, source_texture.height // 8, 1)
+````
+
+What is that 8 value ?
+
+A compute shader can be executed in parallel, with a level of parallelism (read: how many cores will run that code) specified by the numthreads attribute in the shader. That is a tridimensional value, so to get the final number of running threads you need to do x * y * z. In our case 64 threads can potentially run in parallel.
+
+As we want to process 512 * 512 elements (the pixels in the texture) we want to run the compute shader only the amount of times required to fill the whole texture (the amount of executions are the arguments of the dispatch method, again as a tridimensional value)
+
+If you set teh arguments of dispatch to (1,1,1) you will only copy the top left 8x8 quad of the texture.
+
+Cool, but how can i check if everything worked well ?
+
+We have obviously tons of ways, but let's use a popular one: Pillow (append that code after the dispatch() call)
+
+```
+from PIL import Image
+
+readback_buffer = Buffer(source_texture.size, HEAP_READBACK)
+destination_texture.copy_to(readback_buffer)
+
+image = Image.frombuffer('RGBA', (destination_texture.width,
+                         destination_texture.height), readback_buffer.readback())
+image.show()
+```
+
+If everything goes well a window should open with a 512x512 image with random pixel colors.
+
+Try experimenting with different dispatch() arguments to see how the behaviour changes.
 
 ## compushady.Swapchain
 
 While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
-For creating a swapchain you need to specify a window handle to attach to (this is operating system dependent), a format (generally B8G8R8A8_UNORM) and the number of buffers (generally 2). When you want to 'blit' a texture to the swapchain you just call the ```compushady.Swapchain.present(texture, x=0, y=0)``` method (with x and y you can specify where to blit the texture). The Swapchain always waits for the VSYNC.
+For creating a swapchain you need to specify a window handle to attach to (this is operating system dependent), a format (generally B8G8R8A8_UNORM) and the number of buffers (generally 3). When you want to 'blit' a texture to the swapchain you just call the ```compushady.Swapchain.present(texture, x=0, y=0)``` method (with x and y you can specify where to blit the texture). The Swapchain always waits for the VSYNC.
 
 This is an example of doing it using the glfw module (with a swapchain with 3 buffers):
 
@@ -288,6 +374,12 @@ glfw.terminate()
 
 ## Accessing native GPU resources (advanced usage)
 
+TODO
+
+## Multithreading
+
+TODO
+
 ## Backends
 
 There are currently 4 backends for GPU access: vulkan, metal, d3d12 and d3d11 (this last one is way slower than the others and included just for backward compatibility)
@@ -305,3 +397,8 @@ When converting HLSL to SPIR-V an offset is added to SRVs (1024) and UAVs (2048)
 When converting HLSL to MSL the code is first translated to SPIR-V and finally remapped to MSL. Here the mapping is again different to overcome metal approach to resource binding. In metal we have only two (from the compushady point of view) kind of resources: buffers and textures. When doing the conversion the SPIR-V bindings are just trashed and instead a sequential model is applied: from the lowest binding id just assign the next index based on the type of SPIR-V resource (Uniform is a buffer, ConstantUniform is a texture).
 Example: 2048 uniform will be buffer(1), 2049 contant uniform will be texture(0), 1025 uniform will be buffer(0). Remember the numerical order is always relevant!
 
+## Known Issues
+
+* The Metal backend does not support x and y for the Swapchain (so you will always blit the texture at 0, 0)
+* There is some alignment issues on older Metal GPUs, generally the alignment of structured/formatted buffer should be handled in a more robust way (but Apple Silicon GPUs generally work without issues)
+* Avoid using the d3d11 backend, it is slow in lot of operations and not thread safe
