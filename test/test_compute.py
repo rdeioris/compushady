@@ -45,7 +45,7 @@ class ComputeTests(unittest.TestCase):
                          (0xdeadbeef, 0xdeadbeef))
 
     def test_simple_struct(self):
-        b0 = Buffer(16)
+        b0 = Buffer(16, stride=8)
         b1 = Buffer(b0.size, HEAP_READBACK)
         shader = hlsl.compile("""
         struct Block

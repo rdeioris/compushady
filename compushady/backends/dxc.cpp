@@ -27,35 +27,35 @@ static PyObject* dxc_generate_exception(HRESULT hr, const char* prefix)
 
 static bool vulkan_get_spirv_local_size(const uint32_t* words, size_t len, uint32_t* x, uint32_t* y, uint32_t* z)
 {
-        if (len < 20) // strip SPIR-V header
-                return false;
-        if (len % 4) // SPIR-V is a stream of 32bits words
-                return false;
-        if (words[0] != 0x07230203) // SPIR-V magic
-                return false;
+	if (len < 20) // strip SPIR-V header
+		return false;
+	if (len % 4) // SPIR-V is a stream of 32bits words
+		return false;
+	if (words[0] != 0x07230203) // SPIR-V magic
+		return false;
 
-        size_t offset = 5; // (20 / 4 of SPIR-V header)
-        size_t words_num = len / 4;
-        while (offset < words_num)
-        {
-                uint32_t word = words[offset];
-                uint16_t opcode = word & 0xFFFF;
-                uint16_t size = word >> 16;
-                if (size == 0) // avoid loop!
-                        return false;
-                if (opcode == 16 && (offset + size < words_num) && size >= 6 ) // OpExecutionMode(16) + LocalSize(17) + x + y + z
-                {
-			if (words[offset+2] == 17)
+	size_t offset = 5; // (20 / 4 of SPIR-V header)
+	size_t words_num = len / 4;
+	while (offset < words_num)
+	{
+		uint32_t word = words[offset];
+		uint16_t opcode = word & 0xFFFF;
+		uint16_t size = word >> 16;
+		if (size == 0) // avoid loop!
+			return false;
+		if (opcode == 16 && (offset + size < words_num) && size >= 6) // OpExecutionMode(16) + LocalSize(17) + x + y + z
+		{
+			if (words[offset + 2] == 17)
 			{
-				*x = words[offset+3];
-				*y = words[offset+4];
-				*z = words[offset+5];
+				*x = words[offset + 3];
+				*y = words[offset + 4];
+				*z = words[offset + 5];
 				return true;
 			}
-                }
-                offset += size;
-        }
-        return false;
+		}
+		offset += size;
+	}
+	return false;
 }
 
 static PyObject* dxc_compile(PyObject* self, PyObject* args)
@@ -164,10 +164,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	{
 		arguments.push_back(L"-spirv");
 		arguments.push_back(L"-fvk-t-shift");
-		arguments.push_back(L"32");
+		arguments.push_back(L"1024");
 		arguments.push_back(L"0");
 		arguments.push_back(L"-fvk-u-shift");
-		arguments.push_back(L"64");
+		arguments.push_back(L"2048");
 		arguments.push_back(L"0");
 	}
 
@@ -240,21 +240,103 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		try
 		{
 			spirv_cross::CompilerMSL msl((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
+			uint32_t x = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 0);
+			uint32_t y = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 1);
+			uint32_t z = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 2);
+
+			std::map<uint32_t, spv::StorageClass> cbv;
+			std::vector<uint32_t> cbv_keys;
+			std::map<uint32_t, spv::StorageClass> srv;
+			std::vector<uint32_t> srv_keys;
+			std::map<uint32_t, spv::StorageClass> uav;
+			std::vector<uint32_t> uav_keys;
+
+			auto track_bindings = [&](spirv_cross::Resource& resource)
+			{
+				const uint32_t binding = msl.get_decoration(resource.id, spv::Decoration::DecorationBinding);
+				spv::StorageClass storage_class = msl.get_storage_class(resource.id);
+				if (binding < 1024)
+				{
+					cbv[binding] = storage_class;
+					cbv_keys.push_back(binding);
+				}
+				else if (binding < 2048)
+				{
+					srv[binding] = storage_class;
+					srv_keys.push_back(binding);
+				}
+				else
+				{
+					uav[binding] = storage_class;
+					uav_keys.push_back(binding);
+				}
+			};
+
+			for (auto resource : msl.get_shader_resources().storage_buffers)
+			{
+				track_bindings(resource);
+			}
+			for (auto resource : msl.get_shader_resources().storage_images)
+			{
+				track_bindings(resource);
+			}
+			for (auto resource : msl.get_shader_resources().uniform_buffers)
+			{
+				track_bindings(resource);
+			}
+			for (auto resource : msl.get_shader_resources().sampled_images)
+			{
+				track_bindings(resource);
+			}
+			for (auto resource : msl.get_shader_resources().separate_images)
+			{
+				track_bindings(resource);
+			}
+
+			std::sort(cbv_keys.begin(), cbv_keys.end());
+			std::sort(srv_keys.begin(), srv_keys.end());
+			std::sort(uav_keys.begin(), uav_keys.end());
+
+			uint32_t buffer_index = 0;
+			uint32_t texture_index = 0;
+
+			for (const uint32_t binding : cbv_keys)
+			{
+				spirv_cross::MSLResourceBinding msl_binding;
+				msl_binding.count = 1;
+				msl_binding.binding = binding;
+				msl_binding.msl_texture = cbv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
+				msl_binding.msl_buffer = cbv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
+				msl.add_msl_resource_binding(msl_binding);
+			}
+
+			for (const uint32_t binding : srv_keys)
+			{
+				spirv_cross::MSLResourceBinding msl_binding;
+				msl_binding.count = 1;
+				msl_binding.binding = binding;
+				msl_binding.msl_texture = srv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
+				msl_binding.msl_buffer = srv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
+				msl.add_msl_resource_binding(msl_binding);
+			}
+
+			for (const uint32_t binding : uav_keys)
+			{
+				spirv_cross::MSLResourceBinding msl_binding;
+				msl_binding.count = 1;
+				msl_binding.binding = binding;
+				msl_binding.msl_texture = uav[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
+				msl_binding.msl_buffer = uav[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
+				msl.add_msl_resource_binding(msl_binding);
+			}
+
 			spirv_cross::CompilerMSL::Options options;
-			options.enable_decoration_binding = true;
 			msl.set_msl_options(options);
 			std::string msl_code = msl.compile();
-			uint32_t x = 1;
-			uint32_t y = 1;
-			uint32_t z = 1;
-			if (!vulkan_get_spirv_local_size((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize(), &x, &y, &z))
-			{
-				py_exc = PyErr_Format(PyExc_Exception, "Unable to retrieve grid LocalSize from SPIR-V");
-			}
-			else
-			{
-				py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
-			}
+			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
 		}
 		catch (const std::exception& e)
 		{
