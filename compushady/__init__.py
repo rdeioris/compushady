@@ -194,7 +194,7 @@ class Texture3D(Resource):
 
 class Swapchain:
 
-    def __init__(self, window_handle, format, num_buffers=2, device=None):
+    def __init__(self, window_handle, format, num_buffers=3, device=None):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_swapchain(
             window_handle, format, num_buffers)
