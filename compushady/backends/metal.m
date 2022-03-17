@@ -504,7 +504,7 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
         texture_descriptor.swizzle = MTLTextureSwizzleChannelsDefault;
         texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
     
-        py_resource->texture = [py_resource->buffer newTextureWithDescriptor:texture_descriptor offset:0 bytesPerRow:COMPUSHADY_ALIGN(size, 16)];
+        py_resource->texture = [py_resource->buffer newTextureWithDescriptor:texture_descriptor offset:0 bytesPerRow:COMPUSHADY_ALIGN(size, [py_device->device minimumTextureBufferAlignmentForPixelFormat:texture_descriptor.pixelFormat])];
         py_resource->row_pitch = size;
         py_resource->width = texture_descriptor.width;
         py_resource->height = 1;

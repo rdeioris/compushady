@@ -13,13 +13,8 @@ print('Using device', compushady.get_current_device().name)
 buffer = compushady.Buffer(512 * 512 * 4, compushady.HEAP_UPLOAD)
 buffer.upload(b'\xFF\x00\x00\x00' * 512 * 512)
 
-print(buffer)
-
 texture = compushady.Texture2D(512, 512, compushady.formats.R8G8B8A8_UNORM)
-print(texture)
 buffer.copy_to(texture)
-
-print(texture)
 
 target = compushady.Texture2D(512, 512, compushady.formats.B8G8R8A8_UNORM)
 
@@ -76,7 +71,7 @@ glfw.init()
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-window = glfw.create_window(1024, 1024, "Rasterizer", None, None)
+window = glfw.create_window(target.width, target.height, "Rasterizer", None, None)
 
 if platform.system() == 'Windows':
     swapchain = compushady.Swapchain(glfw.get_win32_window(
