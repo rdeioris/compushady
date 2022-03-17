@@ -185,6 +185,32 @@ Buffers created with HEAP_UPLOAD exposes the ```upload(data, offset=0)``` and ``
 
 Bufers created with HEAP_READBACK exposes the ```readback(size=0, offset=0)```, ```readback2d(row_pitch, height, bytes_per_pixel)``` and ```readback_to_buffer(buffer, offset=0)``` methods
 
+Buffer can even be `structured` and `formatted`:
+
+This is an HLSL shader using a StructuredBuffer object
+
+```hlsl
+struct Data
+{
+    uint field0;
+    float field1;
+};
+RWStructuredBuffer<Data> buffer: register(u0);
+[numthreads(1, 1, 1)]
+void main()
+{
+    buffer[0].field0 = 1;
+    buffer[0].field1 = 2.0;
+    buffer[1].field0 = 4;
+    buffer[1].field1 = 4.0;
+}
+```
+You can create a 'structured' buffer by passing the `stride` option with the size of the structure:
+
+```py
+structured_buffer = Buffer(size=16, stride=8) # will create a buffer of 16 bytes, divided in two structures of 8 bytes each (the struct Data)
+```
+
 ## compushady.Texture2D
 
 A Texture2D object is a bidimensional (width and height) texture available in the GPU memory. You can read it from your Compute shader or blit it to a Swapchain.
