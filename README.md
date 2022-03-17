@@ -19,13 +19,13 @@ An OpenGL backend is expected to be included (sooner or later).
 pip install compushady
 ```
 
-Note for Linux:
+`Note for Linux`:
 (if you are building from sources, be sure vulkan and x11 headers are installed, ```libvulkan-dev``` and ```libx11-dev``` on a debian based distribution)
 
-Note for Mac:
+`Note for Mac`:
 (the vulkan headers will be searched in /usr/local or by reading the VULKAN_SDK environment variable, otherwise only the metal backend will be built)
 
-Note for Window:
+`Note for Windows`:
 (the vulkan headers will be searched by reading the VULKAN_SDK environment variable, automatically set by the LunarG installer. If no Vulkan SDK is found only the d3d12 and d3d11 backends will be built)
 
 ### Enumerate compute devices
@@ -255,7 +255,18 @@ glfw.terminate()
 
 ## Backends
 
-There are currently 3 backends for GPU access: vulkan, d3d12 and d3d11 (this last one is way slower than the others and included just for backward compatibility)
+There are currently 4 backends for GPU access: vulkan, metal, d3d12 and d3d11 (this last one is way slower than the others and included just for backward compatibility)
 
 There is one shader backend for HLSL (GLSL support is in progress) based on Microsoft DXC, but (on vulkan) you can use any SPIR-V blob by passing it as the first argument of the ```compushady.Compute``` initializer.
+
+## Dealing with backends differences
+
+### Bindings
+
+In HLSL you assign resources to registers/slot using 3 main concepts: cbv, srv, uav and their related registers (b0, t0, t1, u0,...)
+
+When converting HLSL to SPIR-V an offset is added to SRVs (1024) and UAVs (2048), so b0 will be mapped to SPIR-V binding 0, b1 to 1, t0 to 1024, t2 to 1026 and u0 to 2048. Remember this when using SPIR-V directly.
+
+When converting HLSL to MSL the code is first translated to SPIR-V and finally remapped to MSL. Here the mapping is again different to overcome metal approach to resource binding. In metal we have only two (from the compushady point of view) kind of resources: buffers and textures. When doing the conversion the SPIR-V bindings are just trashed and instead a sequential model is applied: from the lowest binding id just assign the next index based on the type of SPIR-V resource (Uniform is a buffer, ConstantUniform is a texture).
+Example: 2048 uniform will be buffer(1), 2049 contant uniform will be texture(0), 1025 uniform will be buffer(0). Remember the numerical order is always relevant!
 
