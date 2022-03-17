@@ -1,2 +1,3 @@
 include compushady/backends/*.h
 include compushady/backends/spirv_cross/*.hpp
+include compushady/backends/spirv_cross/*.h
