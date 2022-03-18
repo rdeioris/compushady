@@ -312,7 +312,7 @@ A compute shader can be executed in parallel, with a level of parallelism (read:
 
 As we want to process 512 * 512 elements (the pixels in the texture) we want to run the compute shader only the amount of times required to fill the whole texture (the amount of executions are the arguments of the dispatch method, again as a tridimensional value)
 
-If you set teh arguments of dispatch to (1,1,1) you will only copy the top left 8x8 quad of the texture.
+If you set the arguments of dispatch to (1,1,1) you will only copy the top left 8x8 quad of the texture.
 
 Cool, but how can i check if everything worked well ?
 
