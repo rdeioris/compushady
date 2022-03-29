@@ -378,7 +378,7 @@ glfw.terminate()
 
 ## RaspberryPI 4 Vulkan support
 
-Recent mesa distribution include a Vulkan rpi4 (V3D) driver.
+Recent mesa distributions include a Vulkan rpi4 (V3D) driver.
 
 Compushady supports it (included the DXC compiler).
 
