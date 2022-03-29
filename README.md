@@ -17,6 +17,8 @@ Python 3.6 is the minimal supported version and you obviously need a system with
 
 An OpenGL backend is expected to be included (sooner or later).
 
+If you want to run compushady on RaspberryPi 4 check here: https://github.com/rdeioris/compushady/blob/main/README.md#raspberrypi-4-vulkan-support
+
 ## Quickstart
 
 ```sh
@@ -380,7 +382,7 @@ glfw.terminate()
 
 Recent mesa distributions include a Vulkan rpi4 (V3D) driver.
 
-Compushady supports it (included the DXC compiler).
+Compushady supports it (included the DXC compiler) in both 32 and 64 bit mode.
 
 Note that float16 support is not available (so formats like R16G16B16A16_FLOAT are not going to work)
 
