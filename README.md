@@ -5,7 +5,7 @@ Python module for easily running Compute Shaders
 
 Join the Discord server for support: https://discord.gg/EFvWaaxdR4
 
-Currently d3d12 (Windows), vulkan (Linux, Mac and Windows), metal (Mac), and d3d11 (Windows) are supported. 
+Currently d3d12 (Windows), vulkan (Linux, Mac and Windows), metal (Mac), and d3d11 (Windows) are supported.
 
 You can write shaders in HLSL and they will be compiled into the appropriate format (DXIL, DXBC, SPIR-V, MSL ...) automatically (using the DXC compiler included in the module as well as SPIRV-Cross).
 
@@ -16,6 +16,8 @@ If you are looking for something cool, try this naive pong implementation: https
 Python 3.6 is the minimal supported version and you obviously need a system with at least one GPU.
 
 An OpenGL backend is expected to be included (sooner or later).
+
+If you want to run compushady on RaspberryPi 4 check here: https://github.com/rdeioris/compushady/blob/main/README.md#raspberrypi-4-vulkan-support
 
 ## Quickstart
 
@@ -375,6 +377,14 @@ swapchain = None  # this ensures the swapchain is destroyed before the window
 
 glfw.terminate()
 ```
+
+## RaspberryPI 4 Vulkan support
+
+Recent mesa distributions include a Vulkan rpi4 (V3D) driver.
+
+Compushady supports it (included the DXC compiler) in both 32 and 64 bit mode.
+
+Note that float16 support is not available (so formats like R16G16B16A16_FLOAT are not going to work)
 
 ## Accessing native GPU resources (advanced usage)
 
