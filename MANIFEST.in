@@ -1,3 +1,6 @@
 include compushady/backends/*.h
 include compushady/backends/spirv_cross/*.hpp
 include compushady/backends/spirv_cross/*.h
+include compushady/backends/*.dll
+include compushady/backends/*.so.*
+include compushady/backends/*.dylib
