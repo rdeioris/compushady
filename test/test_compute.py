@@ -1,7 +1,7 @@
 import numpy
 import struct
 import unittest
-from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK, Texture2D
+from compushady import Buffer, Compute, HEAP_UPLOAD, HEAP_READBACK, Texture2D, Texture3D
 from compushady.shaders import hlsl
 from compushady.formats import R32G32_FLOAT, R32G32B32A32_UINT, R16G16B16A16_FLOAT, R32_UINT
 import compushady.config
@@ -66,7 +66,6 @@ class ComputeTests(unittest.TestCase):
         b0.copy_to(b1)
         self.assertEqual(struct.unpack('IIII', b1.readback()),
                          (0xdeadbeef, 0xbeefdead, 0xdeadbeef, 0xbeefdead))
-
 
     @unittest.skipIf('V3D' in compushady.get_current_device().name, 'float16 not supported on V3D device')
     def test_simple_fill_float16(self):
@@ -174,3 +173,22 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(b1.readback(4, 4), b'\2\0\0\0')
         self.assertEqual(b1.readback(4, u0.row_pitch), b'\3\0\0\0')
         self.assertEqual(b1.readback(4, u0.row_pitch + 4), b'\4\0\0\0')
+
+    def test_texture3d_depth(self):
+        u0 = Texture3D(1, 1, 2, R32_UINT)
+        b0 = Buffer(u0.size, HEAP_READBACK)
+        shader = hlsl.compile("""
+
+        RWTexture3D<uint> output : register(u0);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            output[tid] = tid.z * 3 + 1;
+        }
+        """)
+        compute = Compute(shader, uav=[u0])
+        compute.dispatch(1, 1, 2)
+        u0.copy_to(b0)
+        self.assertEqual(b0.readback(4), b'\1\0\0\0')
+        self.assertEqual(b0.readback(4, u0.row_pitch), b'\4\0\0\0')
