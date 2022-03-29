@@ -92,12 +92,15 @@ additional_files = []
 if is_windows:
     additional_files = ['backends/dxcompiler.dll', 'backends/dxil.dll']
 elif platform.system() == 'Linux':
-    additional_files = ['backends/libdxcompiler.so.3.7']
+    if platform.machine() == 'armv7l':
+        additional_files = ['backends/libdxcompiler_armv7l.so.3.7']
+    else:
+        additional_files = ['backends/libdxcompiler_x86_6GGso.3.7']
 elif is_mac:
     additional_files = ['backends/libdxcompiler.3.7.dylib']
 
 setup(name='compushady',
-      version='0.17',
+      version='0.17.1',
       description='The compushady GPU Compute module',
       author='Roberto De Ioris',
       author_email='roberto.deioris@gmail.com',

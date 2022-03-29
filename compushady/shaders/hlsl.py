@@ -12,7 +12,10 @@ if platform.system() == 'Windows':
         import ctypes
         ctypes.windll.kernel32.AddDllDirectory(lib_dir)
 elif platform.system() == 'Linux':
-    lib_path = os.path.join(lib_dir, 'libdxcompiler.so.3.7')
+    if platform.machine() == 'armv7l':
+        lib_path = os.path.join(lib_dir, 'libdxcompiler_armv7l.so.3.7')
+    else:
+        lib_path = os.path.join(lib_dir, 'libdxcompiler_x86_64.so.3.7')
     import ctypes
     ctypes.CDLL(lib_path, ctypes.RTLD_GLOBAL)
 elif platform.system() == 'Darwin':
