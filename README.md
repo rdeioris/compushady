@@ -378,13 +378,15 @@ swapchain = None  # this ensures the swapchain is destroyed before the window
 glfw.terminate()
 ```
 
-## RaspberryPI 4 Vulkan support
+## RaspberryPi 4 Vulkan support
 
 Recent mesa distributions include a Vulkan rpi4 (V3D) driver.
 
 Compushady supports it (included the DXC compiler) in both 32 and 64 bit mode.
 
 Note that float16 support is not available (so formats like R16G16B16A16_FLOAT are not going to work)
+
+The module will be built from sources (it will take a bunch of minutes) when doing a ```pip install compushady``` so ensure to have a c/c++ compiler and the python3 headers installed.
 
 ## Accessing native GPU resources (advanced usage)
 
