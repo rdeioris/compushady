@@ -68,6 +68,7 @@ class ComputeTests(unittest.TestCase):
                          (0xdeadbeef, 0xbeefdead, 0xdeadbeef, 0xbeefdead))
 
 
+    @unittest.skipIf('V3D' in compushady.get_current_device().name, 'float16 not supported on V3D device')
     def test_simple_fill_float16(self):
         b0 = Buffer(32, format=R16G16B16A16_FLOAT)
         b1 = Buffer(32, HEAP_READBACK)
