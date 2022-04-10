@@ -19,6 +19,8 @@ An OpenGL backend is expected to be included (sooner or later).
 
 If you want to run compushady on RaspberryPi 4 check here: https://github.com/rdeioris/compushady/blob/main/README.md#raspberrypi-4-vulkan-support
 
+Consider sponsoring the project becoming a patron: https://www.patreon.com/rdeioris
+
 ## Quickstart
 
 ```sh
