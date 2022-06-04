@@ -362,6 +362,7 @@ static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
 
 	ID3D12Resource* backbuffer = self->backbuffers[index];
 
+	self->py_device->command_allocator->Reset();
 	self->py_device->command_list->Reset(self->py_device->command_allocator, NULL);
 
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -1272,6 +1273,7 @@ static PyObject* d3d12_Resource_copy_to(d3d12_Resource* self, PyObject* args)
 	bool reset_barrier0 = false;
 	bool reset_barrier1 = false;
 
+	self->py_device->command_allocator->Reset();
 	self->py_device->command_list->Reset(self->py_device->command_allocator, NULL);
 
 	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -1374,6 +1376,7 @@ static PyObject* d3d12_Compute_dispatch(d3d12_Compute* self, PyObject* args)
 	if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
 		return NULL;
 
+	self->py_device->command_allocator->Reset();
 	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
 	self->py_device->command_list->SetDescriptorHeaps(1, &self->descriptor_heap);
 	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
