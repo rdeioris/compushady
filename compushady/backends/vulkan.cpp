@@ -10,6 +10,7 @@
 #else
 #include <X11/Xlib.h>
 #include <vulkan/vulkan_xlib.h>
+#include <vulkan/vulkan_wayland.h>
 #endif
 #endif
 
@@ -28,6 +29,8 @@ std::vector<std::string> vulkan_debug_messages;
 static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
 static bool vulkan_supports_swapchain = true;
+
+static bool vulkan_has_wayland = false;
 
 typedef struct vulkan_Device
 {
@@ -525,6 +528,12 @@ static PyObject* vulkan_instance_check()
 		if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
 		{
 			extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+			continue;
+		}
+		if (!strcmp(extension_prop.extensionName, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
+		{
+			extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+			vulkan_has_wayland = true;
 #endif
 #endif
 			continue;
@@ -1477,7 +1486,9 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	PyObject* py_window_handle;
 	int format;
 	uint32_t num_buffers;
-	if (!PyArg_ParseTuple(args, "OiI", &py_window_handle, &format, &num_buffers))
+	uint32_t width = 0;
+	uint32_t height = 0;
+	if (!PyArg_ParseTuple(args, "OiI|ii", &py_window_handle, &format, &num_buffers, &width, &height))
 		return NULL;
 
 	if (vulkan_formats.find(format) == vulkan_formats.end())
@@ -1561,22 +1572,40 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		return NULL;
 	}
 
-	VkXlibSurfaceCreateInfoKHR surface_create_info = {};
-	surface_create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-	surface_create_info.dpy = (Display*)display;
-	surface_create_info.window = (Window)window;
-
-	VkResult result = vkCreateXlibSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
-	if (result != VK_SUCCESS)
+	const char *xdg_session_type = getenv("XDG_SESSION_TYPE");
+	if (vulkan_has_wayland && xdg_session_type && !strcmp(xdg_session_type, "wayland"))
 	{
-		Py_DECREF(py_swapchain);
-		return PyErr_Format(PyExc_Exception, "Unable to create xlib surface");
+		VkWaylandSurfaceCreateInfoKHR surface_create_info = {};
+		surface_create_info.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
+		surface_create_info.display = (struct wl_display*)display;
+		surface_create_info.surface = (struct wl_surface*)window;
+
+		VkResult result = vkCreateWaylandSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+		if (result != VK_SUCCESS)
+		{
+			Py_DECREF(py_swapchain);
+			return PyErr_Format(PyExc_Exception, "Unable to create wayland surface");
+		}
+	}
+	else
+	{
+		VkXlibSurfaceCreateInfoKHR surface_create_info = {};
+		surface_create_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+		surface_create_info.dpy = (Display*)display;
+		surface_create_info.window = (Window)window;
+
+		VkResult result = vkCreateXlibSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+		if (result != VK_SUCCESS)
+		{
+			Py_DECREF(py_swapchain);
+			return PyErr_Format(PyExc_Exception, "Unable to create xlib surface");
+		}
 	}
 #endif
 #endif
 
 	VkBool32 supported;
-	result = vkGetPhysicalDeviceSurfaceSupportKHR(self->physical_device, self->queue_family_index, py_swapchain->surface, &supported);
+	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(self->physical_device, self->queue_family_index, py_swapchain->surface, &supported);
 	if (result != VK_SUCCESS || !supported)
 	{
 		Py_DECREF(py_swapchain);
@@ -1592,6 +1621,10 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	swapchain_create_info.imageFormat = vulkan_formats[format].first;
 	swapchain_create_info.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
 	swapchain_create_info.imageExtent = surface_capabilities.currentExtent;
+	if (width > 0)
+		swapchain_create_info.imageExtent.width = width;
+	if (height > 0)
+		swapchain_create_info.imageExtent.height = height;
 	swapchain_create_info.imageArrayLayers = 1;
 	swapchain_create_info.imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	swapchain_create_info.preTransform = surface_capabilities.currentTransform;
