@@ -1516,6 +1516,8 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	Py_INCREF(py_swapchain->py_device);
 	py_swapchain->images = {};
 
+	VkResult result;
+
 #ifdef _WIN32
 	if (!PyLong_Check(py_window_handle))
 	{
@@ -1530,7 +1532,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	surface_create_info.hinstance = GetModuleHandle(NULL);
 	surface_create_info.hwnd = window;
 
-	VkResult result = vkCreateWin32SurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+	result = vkCreateWin32SurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
 	if (result != VK_SUCCESS)
 	{
 		Py_DECREF(py_swapchain);
@@ -1550,7 +1552,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 	metal_surface_create_info.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT;
 	metal_surface_create_info.pLayer = metal_layer;
 
-	VkResult result = vkCreateMetalSurfaceEXT(vulkan_instance, &metal_surface_create_info, NULL, &py_swapchain->surface);
+	result = vkCreateMetalSurfaceEXT(vulkan_instance, &metal_surface_create_info, NULL, &py_swapchain->surface);
 	if (result != VK_SUCCESS)
 	{
 		Py_DECREF(py_swapchain);
@@ -1580,7 +1582,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		surface_create_info.display = (struct wl_display*)display;
 		surface_create_info.surface = (struct wl_surface*)window;
 
-		VkResult result = vkCreateWaylandSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+		result = vkCreateWaylandSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
 		if (result != VK_SUCCESS)
 		{
 			Py_DECREF(py_swapchain);
@@ -1594,7 +1596,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		surface_create_info.dpy = (Display*)display;
 		surface_create_info.window = (Window)window;
 
-		VkResult result = vkCreateXlibSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
+		result = vkCreateXlibSurfaceKHR(vulkan_instance, &surface_create_info, NULL, &py_swapchain->surface);
 		if (result != VK_SUCCESS)
 		{
 			Py_DECREF(py_swapchain);
@@ -1605,7 +1607,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 #endif
 
 	VkBool32 supported;
-	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(self->physical_device, self->queue_family_index, py_swapchain->surface, &supported);
+	result = vkGetPhysicalDeviceSurfaceSupportKHR(self->physical_device, self->queue_family_index, py_swapchain->surface, &supported);
 	if (result != VK_SUCCESS || !supported)
 	{
 		Py_DECREF(py_swapchain);
