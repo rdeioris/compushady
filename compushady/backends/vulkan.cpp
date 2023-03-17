@@ -98,6 +98,13 @@ typedef struct vulkan_Swapchain
 	VkExtent2D image_extent;
 } vulkan_Swapchain;
 
+typedef struct vulkan_Sampler
+{
+	PyObject_HEAD;
+	vulkan_Device* py_device;
+	VkSampler sampler;
+} vulkan_Sampler;
+
 static const char* vulkan_get_spirv_entry_point(const uint32_t* words, size_t len)
 {
 	if (len < 20) // strip SPIR-V header
@@ -453,6 +460,42 @@ static PyTypeObject vulkan_Swapchain_Type = {
 	0,																	   /* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,													   /* tp_flags */
 	"compushady vulkan Swapchain",										   /* tp_doc */
+};
+
+static void vulkan_Sampler_dealloc(vulkan_Sampler* self)
+{
+
+	if (self->py_device)
+	{
+		if (self->sampler)
+			vkDestroySampler(self->py_device->device, self->sampler, NULL);
+		Py_DECREF(self->py_device);
+	}
+
+	Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject vulkan_Sampler_Type = {
+	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Sampler", /* tp_name */
+	sizeof(vulkan_Sampler),											   /* tp_basicsize */
+	0,																	   /* tp_itemsize */
+	(destructor)vulkan_Sampler_dealloc,								   /* tp_dealloc */
+	0,																	   /* tp_print */
+	0,																	   /* tp_getattr */
+	0,																	   /* tp_setattr */
+	0,																	   /* tp_reserved */
+	0,																	   /* tp_repr */
+	0,																	   /* tp_as_number */
+	0,																	   /* tp_as_sequence */
+	0,																	   /* tp_as_mapping */
+	0,																	   /* tp_hash  */
+	0,																	   /* tp_call */
+	0,																	   /* tp_str */
+	0,																	   /* tp_getattro */
+	0,																	   /* tp_setattro */
+	0,																	   /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,													   /* tp_flags */
+	"compushady vulkan Sampler",										   /* tp_doc */
 };
 
 static PyMemberDef vulkan_Device_members[] = {
@@ -1188,14 +1231,15 @@ static PyObject* vulkan_Device_create_texture1d(vulkan_Device * self, PyObject *
 
 static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * args, PyObject * kwds)
 {
-	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+	const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", NULL };
 	Py_buffer view;
 	PyObject* py_cbv = NULL;
 	PyObject* py_srv = NULL;
 	PyObject* py_uav = NULL;
+	PyObject* py_samplers = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
-		&view, &py_cbv, &py_srv, &py_uav))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOO", (char**)kwlist,
+		&view, &py_cbv, &py_srv, &py_uav, &py_samplers))
 		return NULL;
 
 	vulkan_Device* py_device = vulkan_Device_get_device(self);
@@ -1205,7 +1249,8 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 	std::vector<vulkan_Resource*> cbv;
 	std::vector<vulkan_Resource*> srv;
 	std::vector<vulkan_Resource*> uav;
-	if (!compushady_check_descriptors(&vulkan_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
+	std::vector<vulkan_Sampler*> samplers;
+	if (!compushady_check_descriptors(&vulkan_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav, &vulkan_Sampler_Type, py_samplers, samplers))
 	{
 		PyBuffer_Release(&view);
 		return NULL;
@@ -1574,7 +1619,7 @@ static PyObject* vulkan_Device_create_swapchain(vulkan_Device * self, PyObject *
 		return NULL;
 	}
 
-	const char *xdg_session_type = getenv("XDG_SESSION_TYPE");
+	const char* xdg_session_type = getenv("XDG_SESSION_TYPE");
 	if (vulkan_has_wayland && xdg_session_type && !strcmp(xdg_session_type, "wayland"))
 	{
 		VkWaylandSurfaceCreateInfoKHR surface_create_info = {};
@@ -2301,7 +2346,8 @@ PyInit_vulkan(void)
 		&vulkan_Device_Type, vulkan_Device_members, vulkan_Device_methods,
 		&vulkan_Resource_Type, vulkan_Resource_members, vulkan_Resource_methods,
 		&vulkan_Swapchain_Type, vulkan_Swapchain_members, vulkan_Swapchain_methods,
-		&vulkan_Compute_Type, NULL, vulkan_Compute_methods
+		&vulkan_Compute_Type, NULL, vulkan_Compute_methods,
+		&vulkan_Sampler_Type, NULL, NULL
 	);
 
 	if (m == NULL)

@@ -17,6 +17,13 @@
 #define COMPUSHADY_SHADER_BINARY_TYPE_MSL 3
 #define COMPUSHADY_SHADER_BINARY_TYPE_GLSL 4
 
+#define COMPUSHADY_SAMPLER_FILTER_POINT 0
+#define COMPUSHADY_SAMPLER_FILTER_LINEAR 1
+
+#define COMPUSHADY_SAMPLER_ADDRESS_MODE_WRAP 0
+#define COMPUSHADY_SAMPLER_ADDRESS_MODE_MIRROR 1
+#define COMPUSHADY_SAMPLER_ADDRESS_MODE_CLAMP 2
+
 #define R32G32B32A32_FLOAT 2
 #define R32G32B32A32_UINT 3
 #define R32G32B32A32_SINT 4
@@ -64,17 +71,19 @@ extern PyObject* Compushady_BufferError;
 extern PyObject* Compushady_Texture1DError;
 extern PyObject* Compushady_Texture2DError;
 extern PyObject* Compushady_Texture3DError;
+extern PyObject* Compushady_SamplerError;
 
 
 PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
 	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
 	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
-	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods
+	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
+	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods
 );
 
-template<typename T>
-bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav)
+template<typename T, typename U>
+bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav, PyTypeObject* py_sampler_type, PyObject* py_samplers, std::vector<U*>& samplers)
 {
 	if (py_cbv)
 	{
@@ -158,6 +167,35 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 				return false;
 			}
 			uav.push_back((T*)py_item);
+			Py_DECREF(py_item);
+		}
+		Py_DECREF(py_iter);
+	}
+
+	if (py_samplers)
+	{
+		PyObject* py_iter = PyObject_GetIter(py_samplers);
+		if (!py_iter)
+		{
+			return false;
+		}
+		while (PyObject* py_item = PyIter_Next(py_iter))
+		{
+			int ret = PyObject_IsInstance(py_item, (PyObject*)py_sampler_type);
+			if (ret < 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				return false;
+			}
+			else if (ret == 0)
+			{
+				Py_DECREF(py_item);
+				Py_DECREF(py_iter);
+				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+				return false;
+			}
+			samplers.push_back((U*)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);

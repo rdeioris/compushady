@@ -54,12 +54,19 @@ typedef struct d3d12_Swapchain
 	std::vector<ID3D12Resource*> backbuffers;
 } d3d12_Swapchain;
 
+typedef struct d3d12_Sampler
+{
+	PyObject_HEAD;
+	d3d12_Device* py_device;
+	D3D12_SAMPLER_DESC sampler_desc;
+} d3d12_Sampler;
+
 typedef struct d3d12_Compute
 {
 	PyObject_HEAD;
 	d3d12_Device* py_device;
 	ID3D12RootSignature* root_signature;
-	ID3D12DescriptorHeap* descriptor_heap;
+	ID3D12DescriptorHeap* descriptor_heaps[2];
 	ID3D12PipelineState* pipeline;
 } d3d12_Compute;
 
@@ -299,8 +306,10 @@ static void d3d12_Compute_dealloc(d3d12_Compute* self)
 
 	if (self->pipeline)
 		self->pipeline->Release();
-	if (self->descriptor_heap)
-		self->descriptor_heap->Release();
+	if (self->descriptor_heaps[0])
+		self->descriptor_heaps[0]->Release();
+	if (self->descriptor_heaps[1])
+		self->descriptor_heaps[1]->Release();
 	if (self->root_signature)
 		self->root_signature->Release();
 
@@ -330,6 +339,36 @@ static PyTypeObject d3d12_Compute_Type = {
 	0,                                                                   /* tp_as_buffer */
 	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
 	"compushady d3d12 Compute",                                          /* tp_doc */
+};
+
+static void d3d12_Sampler_dealloc(d3d12_Sampler* self)
+{
+	Py_XDECREF(self->py_device);
+
+	Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject d3d12_Sampler_Type = {
+	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Sampler",  /* tp_name */
+	sizeof(d3d12_Sampler),                                               /* tp_basicsize */
+	0,																	 /* tp_itemsize */
+	(destructor)d3d12_Sampler_dealloc,                                   /* tp_dealloc */
+	0,                                                                   /* tp_print */
+	0,                                                                   /* tp_getattr */
+	0,                                                                   /* tp_setattr */
+	0,                                                                   /* tp_reserved */
+	0,                                                                   /* tp_repr */
+	0,                                                                   /* tp_as_number */
+	0,                                                                   /* tp_as_sequence */
+	0,                                                                   /* tp_as_mapping */
+	0,                                                                   /* tp_hash  */
+	0,                                                                   /* tp_call */
+	0,                                                                   /* tp_str */
+	0,                                                                   /* tp_getattro */
+	0,                                                                   /* tp_setattro */
+	0,                                                                   /* tp_as_buffer */
+	Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
+	"compushady d3d12 Sampler",                                          /* tp_doc */
 };
 
 static PyObject* d3d12_Swapchain_present(d3d12_Swapchain* self, PyObject* args)
@@ -426,7 +465,10 @@ static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* arg
 	HWND window_handle;
 	DXGI_FORMAT format;
 	uint32_t num_buffers;
-	if (!PyArg_ParseTuple(args, "KiI", &window_handle, &format, &num_buffers))
+	uint32_t width = 0;
+	uint32_t height = 0;
+
+	if (!PyArg_ParseTuple(args, "KiI|ii", &window_handle, &format, &num_buffers))
 		return NULL;
 
 	d3d12_Device* py_device = d3d12_Device_get_device(self);
@@ -452,6 +494,8 @@ static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* arg
 	}
 
 	DXGI_SWAP_CHAIN_DESC1 swap_chain_desc1 = {};
+	swap_chain_desc1.Width = width;
+	swap_chain_desc1.Height = height;
 	swap_chain_desc1.Format = format;
 	swap_chain_desc1.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	swap_chain_desc1.BufferCount = num_buffers;
@@ -637,6 +681,83 @@ static PyObject* d3d12_Device_create_texture1d(d3d12_Device* self, PyObject* arg
 	return (PyObject*)py_resource;
 }
 
+#define COMPUSHADY_D3D12_SAMPLER_ADDRESS_MODE(var, field) if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_WRAP)\
+{\
+	var = D3D12_TEXTURE_ADDRESS_MODE_WRAP;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_MIRROR)\
+{\
+	var = D3D12_TEXTURE_ADDRESS_MODE_MIRROR;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_CLAMP)\
+{\
+	var = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;\
+}\
+else\
+{\
+	return PyErr_Format(Compushady_SamplerError, "unsupported address mode for " field);\
+}
+
+static PyObject* d3d12_Device_create_sampler(d3d12_Device* self, PyObject* args)
+{
+	int address_mode_u;
+	int address_mode_v;
+	int address_mode_w;
+	int filter_min;
+	int filter_mag;
+	if (!PyArg_ParseTuple(args, "iiiii", &address_mode_u, &address_mode_v, &address_mode_w, &filter_min, &filter_mag))
+		return NULL;
+
+
+	COMPUSHADY_D3D12_SAMPLER_ADDRESS_MODE(address_mode_u, "U");
+	COMPUSHADY_D3D12_SAMPLER_ADDRESS_MODE(address_mode_v, "V");
+	COMPUSHADY_D3D12_SAMPLER_ADDRESS_MODE(address_mode_w, "W");
+
+	D3D12_FILTER filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+
+	if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT && filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		filter = D3D12_FILTER_MIN_LINEAR_MAG_MIP_POINT;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		filter = D3D12_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+	}
+	else
+	{
+		return PyErr_Format(Compushady_SamplerError, "unsupported filter");
+	}
+
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+
+	d3d12_Sampler* py_sampler = (d3d12_Sampler*)PyObject_New(d3d12_Sampler, &d3d12_Sampler_Type);
+	if (!py_sampler)
+	{
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Sampler");
+	}
+	COMPUSHADY_CLEAR(py_sampler);
+	py_sampler->py_device = self;
+	Py_INCREF(py_sampler->py_device);
+
+	py_sampler->sampler_desc.AddressU = (D3D12_TEXTURE_ADDRESS_MODE)address_mode_u;
+	py_sampler->sampler_desc.AddressV = (D3D12_TEXTURE_ADDRESS_MODE)address_mode_v;
+	py_sampler->sampler_desc.AddressW = (D3D12_TEXTURE_ADDRESS_MODE)address_mode_w;
+	py_sampler->sampler_desc.Filter = filter;
+
+	return (PyObject*)py_sampler;
+}
+
 static PyObject* d3d12_Device_create_texture2d(d3d12_Device* self, PyObject* args)
 {
 	UINT width;
@@ -818,14 +939,15 @@ static PyObject* d3d12_Device_get_debug_messages(d3d12_Device* self, PyObject* a
 
 static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args, PyObject* kwds)
 {
-	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+	const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", NULL };
 	Py_buffer view;
 	PyObject* py_cbv = NULL;
 	PyObject* py_srv = NULL;
 	PyObject* py_uav = NULL;
+	PyObject* py_samplers = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
-		&view, &py_cbv, &py_srv, &py_uav))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOO", (char**)kwlist,
+		&view, &py_cbv, &py_srv, &py_uav, &py_samplers))
 		return NULL;
 
 	d3d12_Device* py_device = d3d12_Device_get_device(self);
@@ -835,13 +957,17 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	std::vector<d3d12_Resource*> cbv;
 	std::vector<d3d12_Resource*> srv;
 	std::vector<d3d12_Resource*> uav;
-	if (!compushady_check_descriptors(&d3d12_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
+	std::vector<d3d12_Sampler*> samplers;
+
+	if (!compushady_check_descriptors(&d3d12_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav, &d3d12_Sampler_Type, py_samplers, samplers))
 	{
 		PyBuffer_Release(&view);
 		return NULL;
 	}
 
 	std::vector<D3D12_DESCRIPTOR_RANGE1> ranges;
+	std::vector<D3D12_DESCRIPTOR_RANGE1> samplers_ranges;
+
 	if (cbv.size() > 0)
 	{
 		D3D12_DESCRIPTOR_RANGE1 range = {};
@@ -866,17 +992,29 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 		ranges.push_back(range);
 	}
+	if (samplers.size() > 0)
+	{
+		D3D12_DESCRIPTOR_RANGE1 range = {};
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+		range.NumDescriptors = (UINT)samplers.size();
+		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		samplers_ranges.push_back(range);
+	}
 
 
-	D3D12_ROOT_PARAMETER1 root_parameter = {};
-	root_parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	root_parameter.DescriptorTable.NumDescriptorRanges = (UINT)ranges.size();
-	root_parameter.DescriptorTable.pDescriptorRanges = ranges.data();
+	D3D12_ROOT_PARAMETER1 root_parameters[2] = {};
+	root_parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	root_parameters[0].DescriptorTable.NumDescriptorRanges = (UINT)ranges.size();
+	root_parameters[0].DescriptorTable.pDescriptorRanges = ranges.data();
+
+	root_parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	root_parameters[1].DescriptorTable.NumDescriptorRanges = (UINT)samplers_ranges.size();
+	root_parameters[1].DescriptorTable.pDescriptorRanges = samplers_ranges.data();
 
 	D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned_root_signature = {};
 	versioned_root_signature.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-	versioned_root_signature.Desc_1_1.NumParameters = 1;
-	versioned_root_signature.Desc_1_1.pParameters = &root_parameter;
+	versioned_root_signature.Desc_1_1.NumParameters = 2;
+	versioned_root_signature.Desc_1_1.pParameters = root_parameters;
 
 	ID3DBlob* serialized_root_signature;
 	HRESULT hr = D3D12SerializeVersionedRootSignature(&versioned_root_signature, &serialized_root_signature, NULL);
@@ -910,7 +1048,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	descriptor_heap_desc.NumDescriptors = (UINT)(cbv.size() + srv.size() + uav.size());
 
-	hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)&py_compute->descriptor_heap);
+	hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)&py_compute->descriptor_heaps[0]);
 	if (hr != S_OK)
 	{
 		PyBuffer_Release(&view);
@@ -919,7 +1057,7 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 	}
 
 	UINT increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->descriptor_heap->GetCPUDescriptorHandleForHeapStart();
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->descriptor_heaps[0]->GetCPUDescriptorHandleForHeapStart();
 
 	for (d3d12_Resource* resource : cbv)
 	{
@@ -973,6 +1111,28 @@ static PyObject* d3d12_Device_create_compute(d3d12_Device* self, PyObject* args,
 			py_device->device->CreateUnorderedAccessView(resource->resource, NULL, NULL, cpu_handle);
 		}
 		cpu_handle.ptr += increment;
+	}
+
+	D3D12_DESCRIPTOR_HEAP_DESC sampler_descriptor_heap_desc = {};
+	sampler_descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+	sampler_descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	sampler_descriptor_heap_desc.NumDescriptors = (UINT)samplers.size();
+
+	hr = py_device->device->CreateDescriptorHeap(&sampler_descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void**)&py_compute->descriptor_heaps[1]);
+	if (hr != S_OK)
+	{
+		PyBuffer_Release(&view);
+		Py_DECREF(py_compute);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Sampler Descriptor Heap");
+	}
+
+	UINT sampler_increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
+	D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu_handle = py_compute->descriptor_heaps[1]->GetCPUDescriptorHandleForHeapStart();
+
+	for (d3d12_Sampler* sampler : samplers)
+	{
+		py_device->device->CreateSampler(&sampler->sampler_desc, sampler_cpu_handle);
+		sampler_cpu_handle.ptr += sampler_increment;
 	}
 
 	D3D12_COMPUTE_PIPELINE_STATE_DESC compute_pipeline_desc = {};
@@ -1033,6 +1193,7 @@ static PyMethodDef d3d12_Device_methods[] = {
 	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
 	{"create_compute", (PyCFunction)d3d12_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
 	{"create_swapchain", (PyCFunction)d3d12_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
+	{"create_sampler", (PyCFunction)d3d12_Device_create_sampler, METH_VARARGS, "Creates a Sampler object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -1378,9 +1539,10 @@ static PyObject* d3d12_Compute_dispatch(d3d12_Compute* self, PyObject* args)
 
 	self->py_device->command_allocator->Reset();
 	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
-	self->py_device->command_list->SetDescriptorHeaps(1, &self->descriptor_heap);
+	self->py_device->command_list->SetDescriptorHeaps(2, self->descriptor_heaps);
 	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
-	self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heap->GetGPUDescriptorHandleForHeapStart());
+	self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
+	self->py_device->command_list->SetComputeRootDescriptorTable(1, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
 	self->py_device->command_list->Dispatch(x, y, z);
 	self->py_device->command_list->Close();
 
@@ -1487,7 +1649,8 @@ PyInit_d3d12(void)
 		&d3d12_Device_Type, d3d12_Device_members, d3d12_Device_methods,
 		&d3d12_Resource_Type, d3d12_Resource_members, d3d12_Resource_methods,
 		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, d3d12_Swapchain_methods,
-		&d3d12_Compute_Type, NULL, d3d12_Compute_methods
+		&d3d12_Compute_Type, NULL, d3d12_Compute_methods,
+		&d3d12_Sampler_Type, NULL, NULL
 	);
 
 	dxgi_init_pixel_formats();

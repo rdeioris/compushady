@@ -63,6 +63,12 @@ typedef struct d3d11_Compute
 	std::vector<ID3D11UnorderedAccessView*> uav;
 } d3d11_Compute;
 
+typedef struct d3d11_Sampler
+{
+	PyObject_HEAD;
+	d3d11_Device* py_device;
+} d3d11_Sampler;
+
 static PyMemberDef d3d11_Device_members[] = {
 	{"name", T_OBJECT_EX, offsetof(d3d11_Device, name), 0, "device name/description"},
 	{"dedicated_video_memory", T_ULONGLONG, offsetof(d3d11_Device, dedicated_video_memory), 0, "device dedicated video memory amount"},
@@ -627,13 +633,14 @@ static PyObject* d3d11_Device_get_debug_messages(d3d11_Device* self, PyObject* a
 
 static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args, PyObject* kwds)
 {
-	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+	const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", NULL };
 	Py_buffer view;
 	PyObject* py_cbv = NULL;
 	PyObject* py_srv = NULL;
 	PyObject* py_uav = NULL;
+	PyObject* py_samplers = NULL;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOO", (char**)kwlist,
 		&view, &py_cbv, &py_srv, &py_uav))
 		return NULL;
 
@@ -644,8 +651,9 @@ static PyObject* d3d11_Device_create_compute(d3d11_Device* self, PyObject* args,
 	std::vector<d3d11_Resource*> cbv;
 	std::vector<d3d11_Resource*> srv;
 	std::vector<d3d11_Resource*> uav;
+	std::vector<d3d11_Sampler*> samplers;
 
-	if (!compushady_check_descriptors(&d3d11_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav))
+	if (!compushady_check_descriptors(&d3d11_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav, NULL, py_samplers, samplers))
 	{
 		PyBuffer_Release(&view);
 		return NULL;
@@ -1230,7 +1238,8 @@ PyInit_d3d11(void)
 		&d3d11_Device_Type, d3d11_Device_members, d3d11_Device_methods,
 		&d3d11_Resource_Type, d3d11_Resource_members, d3d11_Resource_methods,
 		&d3d11_Swapchain_Type, /*d3d11_Swapchain_members*/ NULL, d3d11_Swapchain_methods,
-		&d3d11_Compute_Type, NULL, d3d11_Compute_methods
+		&d3d11_Compute_Type, NULL, d3d11_Compute_methods,
+		NULL, NULL, NULL
 	);
 
 	dxgi_init_pixel_formats();

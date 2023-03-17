@@ -13,6 +13,13 @@ SHADER_BINARY_TYPE_DXBC = 2
 SHADER_BINARY_TYPE_MSL = 3
 SHADER_BINARY_TYPE_GLSL = 4
 
+SAMPLER_FILTER_POINT = 0
+SAMPLER_FILTER_LINEAR = 1
+
+SAMPLER_ADDRESS_MODE_WRAP = 0
+SAMPLER_ADDRESS_MODE_MIRROR = 1
+SAMPLER_ADDRESS_MODE_CLAMP = 2
+
 
 class UnknownBackend(Exception):
     pass
@@ -34,6 +41,10 @@ class Texture3DException(Exception):
     pass
 
 
+class SamplerException(Exception):
+    pass
+
+
 _backend = None
 _discovered_devices = None
 _current_device = None
@@ -44,10 +55,12 @@ def get_backend():
         messages = get_current_device().get_debug_messages()
         for message in messages:
             print(message)
+
     global _backend
     if _backend is None:
         _backend = importlib.import_module(
-            'compushady.backends.{0}'.format(config.wanted_backend))
+            "compushady.backends.{0}".format(config.wanted_backend)
+        )
         if config.debug:
             _backend.enable_debug()
             atexit.register(debug_callback)
@@ -74,10 +87,12 @@ def get_current_device():
 
 
 def get_best_device():
-    if 'COMPUSHADY_DEVICE' in os.environ:
-        return get_discovered_devices()[int(os.environ['COMPUSHADY_DEVICE'])]
-    return sorted(get_discovered_devices(), key=lambda x: (
-        x.is_hardware, x.is_discrete, x.dedicated_video_memory))[-1]
+    if "COMPUSHADY_DEVICE" in os.environ:
+        return get_discovered_devices()[int(os.environ["COMPUSHADY_DEVICE"])]
+    return sorted(
+        get_discovered_devices(),
+        key=lambda x: (x.is_hardware, x.is_discrete, x.dedicated_video_memory),
+    )[-1]
 
 
 class Resource:
@@ -113,7 +128,6 @@ class Buffer(Resource):
 
 
 class Texture1D(Resource):
-
     def __init__(self, width, format, device=None):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_texture1d(width, format)
@@ -135,7 +149,6 @@ class Texture1D(Resource):
 
 
 class Texture2D(Resource):
-
     def __init__(self, width, height, format, device=None):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_texture2d(width, height, format)
@@ -145,7 +158,8 @@ class Texture2D(Resource):
         instance = cls.__new__(cls)
         instance.device = device if device else get_current_device()
         instance.handle = instance.device.create_texture2d_from_native(
-            ptr, width, height, format)
+            ptr, width, height, format
+        )
         return instance
 
     @property
@@ -162,11 +176,9 @@ class Texture2D(Resource):
 
 
 class Texture3D(Resource):
-
     def __init__(self, width, height, depth, format, device=None):
         self.device = device if device else get_current_device()
-        self.handle = self.device.create_texture3d(
-            width, height, depth, format)
+        self.handle = self.device.create_texture3d(width, height, depth, format)
 
     @classmethod
     def from_native(cls, ptr, device=None):
@@ -193,11 +205,13 @@ class Texture3D(Resource):
 
 
 class Swapchain:
-
-    def __init__(self, window_handle, format, num_buffers=3, device=None, width=0, height=0):
+    def __init__(
+        self, window_handle, format, num_buffers=3, device=None, width=0, height=0
+    ):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_swapchain(
-            window_handle, format, num_buffers, width, height)
+            window_handle, format, num_buffers, width, height
+        )
 
     @property
     def width(self):
@@ -211,15 +225,32 @@ class Swapchain:
         self.handle.present(resource.handle, x, y)
 
 
-class Compute:
+class Sampler:
+    def __init__(
+        self,
+        address_mode_u=SAMPLER_ADDRESS_MODE_WRAP,
+        address_mode_v=SAMPLER_ADDRESS_MODE_WRAP,
+        address_mode_w=SAMPLER_ADDRESS_MODE_WRAP,
+        filter_min=SAMPLER_FILTER_POINT,
+        filter_mag=SAMPLER_FILTER_POINT,
+        device=None,
+    ):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_sampler(
+            address_mode_u, address_mode_v, address_mode_w, filter_min, filter_mag
+        )
 
-    def __init__(self, shader, cbv=[], srv=[], uav=[], device=None):
+
+class Compute:
+    def __init__(self, shader, cbv=[], srv=[], uav=[], samplers=[], device=None):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_compute(
             shader,
             cbv=[resource.handle for resource in cbv],
             srv=[resource.handle for resource in srv],
-            uav=[resource.handle for resource in uav])
+            uav=[resource.handle for resource in uav],
+            samplers=[sampler.handle for sampler in samplers],
+        )
 
     def dispatch(self, x, y, z):
         self.handle.dispatch(x, y, z)
