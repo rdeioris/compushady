@@ -34,6 +34,13 @@ typedef struct metal_Resource
     uint32_t depth;
 } metal_Resource;
 
+typedef struct metal_Sampler
+{
+    PyObject_HEAD;
+    metal_Device* py_device;
+    id<MTLSamplerState> sampler;
+} metal_Sampler;
+
 typedef struct metal_MTLFunction
 {
     PyObject_HEAD;
@@ -51,9 +58,11 @@ typedef struct metal_Compute
     PyObject* py_cbv_list;
     PyObject* py_srv_list;
     PyObject* py_uav_list;
+    PyObject* py_samplers_list;
     std::vector<metal_Resource*> cbv;
     std::vector<metal_Resource*> srv;
     std::vector<metal_Resource*> uav;
+    std::vector<metal_Sampler*> samplers;
     metal_MTLFunction* py_mtl_function;
 } metal_Compute;
 
@@ -136,6 +145,40 @@ static PyTypeObject metal_Resource_Type = {
     "compushady metal Resource",                                          /* tp_doc */
 };
 
+static void metal_Sampler_dealloc(metal_Sampler* self)
+{
+    if (self->sampler)
+    {
+        [self->sampler release];
+    }
+    
+    Py_XDECREF(self->py_device);
+    
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject metal_Sampler_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Sampler", /* tp_name */
+    sizeof(metal_Sampler),                                              /* tp_basicsize */
+    0,                                                                      /* tp_itemsize */
+    (destructor)metal_Sampler_dealloc,                                  /* tp_dealloc */
+    0,                                                                      /* tp_print */
+    0,                                                                      /* tp_getattr */
+    0,                                                                      /* tp_setattr */
+    0,                                                                      /* tp_reserved */
+    0,                                                                      /* tp_repr */
+    0,                                                                      /* tp_as_number */
+    0,                                                                      /* tp_as_sequence */
+    0,                                                                      /* tp_as_mapping */
+    0,                                                                      /* tp_hash  */
+    0,                                                                      /* tp_call */
+    0,                                                                      /* tp_str */
+    0,                                                                      /* tp_getattro */
+    0,                                                                      /* tp_setattro */
+    0,                                                                      /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,                                                      /* tp_flags */
+    "compushady metal Sampler",                                          /* tp_doc */
+};
 
 
 static void metal_Device_dealloc(metal_Device* self)
@@ -198,6 +241,8 @@ static void metal_Compute_dealloc(metal_Compute* self)
     Py_XDECREF(self->py_cbv_list);
     Py_XDECREF(self->py_srv_list);
     Py_XDECREF(self->py_uav_list);
+
+     Py_XDECREF(self->py_samplers_list);
     
     Py_XDECREF(self->py_mtl_function);
     
@@ -317,6 +362,7 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
 
     uint32_t buffer_index = 0;
     uint32_t texture_index = 0;
+    uint32_t sampler_index = 0;
 
     for(size_t i = 0; i < self->cbv.size(); i++)
     {
@@ -343,6 +389,12 @@ static PyObject* metal_Compute_dispatch(metal_Compute * self, PyObject * args)
         	[compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
 	else
         	[compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+     for(size_t i = 0; i < self->samplers.size(); i++)
+    {
+        metal_Sampler* py_sampler = self->samplers[i];
+        [compute_command_encoder setSamplerState:py_sampler->sampler atIndex:sampler_index++];
     }
 
     [compute_command_encoder dispatchThreadgroups:MTLSizeMake(x, y, z) threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y, self->py_mtl_function->z)];
@@ -518,14 +570,15 @@ static PyObject* metal_Device_create_buffer(metal_Device * self, PyObject * args
 
 static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args, PyObject* kwds)
 {
-    const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
+    const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", NULL };
     PyObject* py_msl;
     PyObject* py_cbv = NULL;
     PyObject* py_srv = NULL;
     PyObject* py_uav = NULL;
+    PyObject* py_samplers = NULL;
     
-    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOO", (char**)kwlist,
-                                     &py_msl, &py_cbv, &py_srv, &py_uav))
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "O|OOOO", (char**)kwlist,
+                                     &py_msl, &py_cbv, &py_srv, &py_uav, &py_samplers))
         return NULL;
     
     int ret = PyObject_IsInstance(py_msl, (PyObject*)&metal_MTLFunction_Type);
@@ -556,11 +609,12 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->cbv = std::vector<metal_Resource*>();
     py_compute->srv = std::vector<metal_Resource*>();
     py_compute->uav = std::vector<metal_Resource*>();
+    py_compute->samplers = std::vector<metal_Sampler*>();
     
     py_compute->py_mtl_function = mtl_function;
     Py_INCREF(py_compute->py_mtl_function);
     
-    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv, py_srv, py_compute->srv, py_uav, py_compute->uav))
+    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv, py_srv, py_compute->srv, py_uav, py_compute->uav, &metal_Sampler_Type, py_samplers, py_compute->samplers))
     {
         Py_DECREF(py_compute);
         return NULL;
@@ -569,6 +623,7 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->py_cbv_list = PyList_New(0);
     py_compute->py_srv_list = PyList_New(0);
     py_compute->py_uav_list = PyList_New(0);
+    py_compute->py_samplers_list = PyList_New(0);
     
     py_compute->compute_pipeline_state = [py_device->device newComputePipelineStateWithFunction:mtl_function->function error:nil];
     if (!py_compute->compute_pipeline_state)
@@ -593,6 +648,12 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     {
         metal_Resource* py_resource = py_compute->uav[i];
         PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
+    }
+
+    for (size_t i = 0; i<py_compute->samplers.size();i++)
+    {
+        metal_Sampler* py_sampler = py_compute->samplers[i];
+        PyList_Append(py_compute->py_samplers_list, (PyObject*)py_sampler);
     }
 
     return (PyObject*)py_compute;
@@ -761,7 +822,9 @@ static PyObject* metal_Device_create_swapchain(metal_Device* self, PyObject* arg
         CAMetalLayer* metal_layer;
         int format;
         uint32_t num_buffers;
-        if (!PyArg_ParseTuple(args, "KiI", &metal_layer, &format, &num_buffers))
+        int width = -1;
+        int height = -1;
+        if (!PyArg_ParseTuple(args, "KiIii", &metal_layer, &format, &num_buffers, &width, &height))
                 return NULL;
 
 	if (metal_formats.find(format) == metal_formats.end())
@@ -789,6 +852,90 @@ static PyObject* metal_Device_create_swapchain(metal_Device* self, PyObject* arg
         return (PyObject*)py_swapchain;
 }
 
+#define COMPUSHADY_METAL_SAMPLER_ADDRESS_MODE(var, field) if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_WRAP)\
+{\
+	var = MTLSamplerAddressModeRepeat;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_MIRROR)\
+{\
+	var = MTLSamplerAddressModeMirrorRepeat;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_CLAMP)\
+{\
+	var = MTLSamplerAddressModeMirrorClampToEdge;\
+}\
+else\
+{\
+	return PyErr_Format(Compushady_SamplerError, "unsupported address mode for " field);\
+}
+
+static PyObject* metal_Device_create_sampler(metal_Device* self, PyObject* args)
+{
+    int address_mode_u;
+	int address_mode_v;
+	int address_mode_w;
+	int filter_min;
+	int filter_mag;
+	if (!PyArg_ParseTuple(args, "iiiii", &address_mode_u, &address_mode_v, &address_mode_w, &filter_min, &filter_mag))
+		return NULL;
+
+	COMPUSHADY_METAL_SAMPLER_ADDRESS_MODE(address_mode_u, "U");
+	COMPUSHADY_METAL_SAMPLER_ADDRESS_MODE(address_mode_v, "V");
+	COMPUSHADY_METAL_SAMPLER_ADDRESS_MODE(address_mode_w, "W");
+
+    if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		filter_min = MTLSamplerMinMagFilterNearest;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		filter_min = MTLSamplerMinMagFilterLinear;
+	}
+    else
+    {
+        return PyErr_Format(Compushady_SamplerError, "unsupported min filter");
+    }
+
+    if (filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		filter_mag = MTLSamplerMinMagFilterNearest;
+	}
+	else if (filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		filter_mag = MTLSamplerMinMagFilterLinear;
+	}
+    else
+    {
+        return PyErr_Format(Compushady_SamplerError, "unsupported mag filter");
+    }
+
+    metal_Device* py_device = metal_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+    
+    metal_Sampler* py_sampler = (metal_Sampler*)PyObject_New(metal_Sampler, &metal_Sampler_Type);
+    if (!py_sampler)
+    {
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Sampler");
+    }
+    COMPUSHADY_CLEAR(py_sampler);
+    py_sampler->py_device = py_device;
+    Py_INCREF(py_sampler->py_device);
+    
+    MTLSamplerDescriptor *sampler_descriptor = [MTLSamplerDescriptor new];
+    sampler_descriptor.normalizedCoordinates = true;
+    sampler_descriptor.rAddressMode = address_mode_w;
+    sampler_descriptor.sAddressMode = address_mode_u;
+    sampler_descriptor.tAddressMode = address_mode_v;
+    sampler_descriptor.minFilter = filter_min;
+    sampler_descriptor.magFilter = filter_mag;
+    
+    py_sampler->sampler = [py_device->device newSamplerStateWithDescriptor:sampler_descriptor];
+    
+    [sampler_descriptor release];
+    
+    return (PyObject*)py_sampler;
+}
 
 static PyMethodDef metal_Device_methods[] = {
     {"create_buffer", (PyCFunction)metal_Device_create_buffer, METH_VARARGS, "Creates a Buffer object"},
@@ -798,6 +945,7 @@ static PyMethodDef metal_Device_methods[] = {
     {"create_compute", (PyCFunction)metal_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
     {"get_debug_messages", (PyCFunction)metal_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
     {"create_swapchain", (PyCFunction)metal_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
+    {"create_sampler", (PyCFunction)metal_Device_create_sampler, METH_VARARGS, "Creates a Sampler object"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -1126,7 +1274,8 @@ PyInit_metal(void)
                                           &metal_Device_Type, metal_Device_members, metal_Device_methods,
                                           &metal_Resource_Type, metal_Resource_members, metal_Resource_methods,
                                           &metal_Swapchain_Type, metal_Swapchain_members, metal_Swapchain_methods,
-                                          &metal_Compute_Type, NULL, metal_Compute_methods
+                                          &metal_Compute_Type, NULL, metal_Compute_methods,
+                                          &metal_Sampler_Type, NULL, NULL
                                           );
     
     if (!m)

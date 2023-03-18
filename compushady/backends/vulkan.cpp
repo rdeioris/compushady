@@ -30,7 +30,9 @@ static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
 static bool vulkan_supports_swapchain = true;
 
+#if !defined(_WIN32) && !defined(__APPLE__)
 static bool vulkan_has_wayland = false;
+#endif
 
 typedef struct vulkan_Device
 {
