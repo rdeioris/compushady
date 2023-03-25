@@ -136,6 +136,9 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"-fvk-u-shift");
 		arguments.push_back(L"2048");
 		arguments.push_back(L"0");
+		arguments.push_back(L"-fvk-s-shift");
+		arguments.push_back(L"3072");
+		arguments.push_back(L"0");
 	}
 
 	IDxcOperationResult* result;
@@ -218,6 +221,8 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			std::map<uint32_t, spv::StorageClass> uav;
 			std::vector<uint32_t> uav_keys;
 
+			std::vector<uint32_t> samplers_keys;
+
 			auto track_bindings = [&](spirv_cross::Resource& resource)
 			{
 				const uint32_t binding = msl.get_decoration(resource.id, spv::Decoration::DecorationBinding);
@@ -232,10 +237,14 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 					srv[binding] = storage_class;
 					srv_keys.push_back(binding);
 				}
-				else
+				else if (binding < 3072)
 				{
 					uav[binding] = storage_class;
 					uav_keys.push_back(binding);
+				}
+				else
+				{
+					samplers_keys.push_back(binding);
 				}
 			};
 
@@ -263,9 +272,11 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			std::sort(cbv_keys.begin(), cbv_keys.end());
 			std::sort(srv_keys.begin(), srv_keys.end());
 			std::sort(uav_keys.begin(), uav_keys.end());
+			std::sort(samplers_keys.begin(), samplers_keys.end());
 
 			uint32_t buffer_index = 0;
 			uint32_t texture_index = 0;
+			uint32_t sampler_index = 0;
 
 			for (const uint32_t binding : cbv_keys)
 			{
@@ -274,6 +285,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = cbv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = cbv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.msl_sampler = 0;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
@@ -285,6 +297,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = srv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = srv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.msl_sampler = 0;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
@@ -296,6 +309,19 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = uav[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = uav[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
+				msl_binding.msl_sampler = 0;
+				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
+				msl.add_msl_resource_binding(msl_binding);
+			}
+
+			for (const uint32_t binding : samplers_keys)
+			{
+				spirv_cross::MSLResourceBinding msl_binding;
+				msl_binding.count = 1;
+				msl_binding.binding = binding;
+				msl_binding.msl_texture = 0;
+				msl_binding.msl_buffer = 0;
+				msl_binding.msl_sampler = sampler_index++;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
