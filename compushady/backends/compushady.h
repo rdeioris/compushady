@@ -1,11 +1,11 @@
 #include <Python.h>
 #include "structmember.h"
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
-#define COMPUSHADY_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
+#define COMPUSHADY_CLEAR(x) memset(((char*)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
 
-#define COMPUSHADY_ALIGN(x, alignment) ((x + alignment -1) / alignment) * alignment
+#define COMPUSHADY_ALIGN(x, alignment) ((x + alignment - 1) / alignment) * alignment
 
 #define COMPUSHADY_HEAP_DEFAULT 0
 #define COMPUSHADY_HEAP_UPLOAD 1
@@ -72,134 +72,189 @@ extern PyObject* Compushady_Texture1DError;
 extern PyObject* Compushady_Texture2DError;
 extern PyObject* Compushady_Texture3DError;
 extern PyObject* Compushady_SamplerError;
+extern PyObject* Compushady_HeapError;
 
-
-PyObject* compushady_backend_init(PyModuleDef* py_module_def,
-	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
-	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
-	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
-	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
-	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods
-);
-
-template<typename T, typename U>
-bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav, PyTypeObject* py_sampler_type, PyObject* py_samplers, std::vector<U*>& samplers)
+typedef struct compushady_backend_desc
 {
-	if (py_cbv)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_cbv);
-		if (!py_iter)
-		{
-			return false;
-		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return false;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-				return false;
-			}
-			cbv.push_back((T*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
+    PyModuleDef py_module_def;
 
-	if (py_srv)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_srv);
-		if (!py_iter)
-		{
-			return false;
-		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return false;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-				return false;
-			}
-			srv.push_back((T*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
+    PyTypeObject* device_type;
+    PyMemberDef* device_members;
+    PyMethodDef* device_methods;
 
-	if (py_uav)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_uav);
-		if (!py_iter)
-		{
-			return false;
-		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return false;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-				return false;
-			}
-			uav.push_back((T*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
+    PyTypeObject* resource_type;
+    PyMemberDef* resource_members;
+    PyMethodDef* resource_methods;
 
-	if (py_samplers)
-	{
-		PyObject* py_iter = PyObject_GetIter(py_samplers);
-		if (!py_iter)
-		{
-			return false;
-		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
-		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_sampler_type);
-			if (ret < 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				return false;
-			}
-			else if (ret == 0)
-			{
-				Py_DECREF(py_item);
-				Py_DECREF(py_iter);
-				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-				return false;
-			}
-			samplers.push_back((U*)py_item);
-			Py_DECREF(py_item);
-		}
-		Py_DECREF(py_iter);
-	}
+    PyTypeObject* swapchain_type;
+    PyMemberDef* swapchain_members;
+    PyMethodDef* swapchain_methods;
 
-	return true;
+    PyTypeObject* compute_type;
+    PyMemberDef* compute_members;
+    PyMethodDef* compute_methods;
+
+    PyTypeObject* sampler_type;
+    PyMemberDef* sampler_members;
+    PyMethodDef* sampler_methods;
+
+    PyTypeObject* heap_type;
+    PyMemberDef* heap_members;
+    PyMethodDef* heap_methods;
+} compushady_backend_desc_t;
+
+void compushady_backend_desc_init(
+    compushady_backend_desc* compushady_backend, const char* name, PyMethodDef* backend_methods);
+
+PyObject* compushady_backend_init(compushady_backend_desc_t* compushady_backend);
+
+void compushady_backend_destroy(compushady_backend_desc* compushady_backend);
+
+template <typename T, typename U>
+bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv,
+    std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav,
+    std::vector<T*>& uav, PyTypeObject* py_sampler_type, PyObject* py_samplers,
+    std::vector<U*>& samplers)
+{
+    if (py_cbv)
+    {
+        PyObject* py_iter = PyObject_GetIter(py_cbv);
+        if (!py_iter)
+        {
+            return false;
+        }
+        while (PyObject* py_item = PyIter_Next(py_iter))
+        {
+            int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+            if (ret < 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                return false;
+            }
+            else if (ret == 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+                return false;
+            }
+            cbv.push_back((T*)py_item);
+            Py_DECREF(py_item);
+        }
+        Py_DECREF(py_iter);
+    }
+
+    if (py_srv)
+    {
+        PyObject* py_iter = PyObject_GetIter(py_srv);
+        if (!py_iter)
+        {
+            return false;
+        }
+        while (PyObject* py_item = PyIter_Next(py_iter))
+        {
+            int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+            if (ret < 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                return false;
+            }
+            else if (ret == 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+                return false;
+            }
+            srv.push_back((T*)py_item);
+            Py_DECREF(py_item);
+        }
+        Py_DECREF(py_iter);
+    }
+
+    if (py_uav)
+    {
+        PyObject* py_iter = PyObject_GetIter(py_uav);
+        if (!py_iter)
+        {
+            return false;
+        }
+        while (PyObject* py_item = PyIter_Next(py_iter))
+        {
+            int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+            if (ret < 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                return false;
+            }
+            else if (ret == 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+                return false;
+            }
+            uav.push_back((T*)py_item);
+            Py_DECREF(py_item);
+        }
+        Py_DECREF(py_iter);
+    }
+
+    if (py_samplers)
+    {
+        PyObject* py_iter = PyObject_GetIter(py_samplers);
+        if (!py_iter)
+        {
+            return false;
+        }
+        while (PyObject* py_item = PyIter_Next(py_iter))
+        {
+            int ret = PyObject_IsInstance(py_item, (PyObject*)py_sampler_type);
+            if (ret < 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                return false;
+            }
+            else if (ret == 0)
+            {
+                Py_DECREF(py_item);
+                Py_DECREF(py_iter);
+                PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+                return false;
+            }
+            samplers.push_back((U*)py_item);
+            Py_DECREF(py_item);
+        }
+        Py_DECREF(py_iter);
+    }
+
+    return true;
 }
+
+#define COMPUSHADY_NEW_TYPE(name, type)                                                            \
+    static PyTypeObject name##_##type##_Type = {                                                  \
+        PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends." #name "." #type, /* tp_name */         \
+        sizeof(name##_##type), /* tp_basicsize */                                              \
+        0, /* tp_itemsize */                                                                       \
+        (destructor)name##_##type##_dealloc, /* tp_dealloc */                                    \
+        0, /* tp_print */                                                                          \
+        0, /* tp_getattr */                                                                        \
+        0, /* tp_setattr */                                                                        \
+        0, /* tp_reserved */                                                                       \
+        0, /* tp_repr */                                                                           \
+        0, /* tp_as_number */                                                                      \
+        0, /* tp_as_sequence */                                                                    \
+        0, /* tp_as_mapping */                                                                     \
+        0, /* tp_hash  */                                                                          \
+        0, /* tp_call */                                                                           \
+        0, /* tp_str */                                                                            \
+        0, /* tp_getattro */                                                                       \
+        0, /* tp_setattro */                                                                       \
+        0, /* tp_as_buffer */                                                                      \
+        Py_TPFLAGS_DEFAULT, /* tp_flags */                                                         \
+        "compushady " #name " " #type, /* tp_doc */                                                  \
+    }
