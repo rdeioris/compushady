@@ -261,3 +261,5 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
         Py_TPFLAGS_DEFAULT, /* tp_flags */                                                         \
         "compushady " #name " " #type, /* tp_doc */                                                  \
     }
+
+#define COMPUSHADY_NEW(type) (type*)PyObject_New(type, &type##_Type);

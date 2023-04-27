@@ -45,6 +45,15 @@ typedef struct d3d12_Resource
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
 } d3d12_Resource;
 
+typedef struct d3d12_Heap
+{
+	PyObject_HEAD;
+	d3d12_Device* py_device;
+	ID3D12Heap* heap;
+	SIZE_T size;
+	int heap_type;
+} d3d12_Heap;
+
 typedef struct d3d12_Swapchain
 {
 	PyObject_HEAD;
@@ -341,6 +350,25 @@ static PyTypeObject d3d12_Resource_Type = {
 	"compushady d3d12 Resource",                                         /* tp_doc */
 };
 
+static void d3d12_Heap_dealloc(d3d12_Heap* self)
+{
+	if (self->heap)
+	{
+		self->heap->Release();
+	}
+
+	Py_XDECREF(self->py_device);
+
+	Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyMemberDef d3d12_Heap_members[] = {
+	{ "size", T_ULONGLONG, offsetof(d3d12_Heap, size), 0, "heap size" },
+	{ "heap_type", T_INT, offsetof(d3d12_Heap, heap_type), 0, "heap type" }, { NULL } /* Sentinel */
+};
+
+COMPUSHADY_NEW_TYPE(d3d12, Heap);
+
 static void d3d12_Swapchain_dealloc(d3d12_Swapchain* self)
 {
 	if (self->swapchain)
@@ -606,14 +634,76 @@ static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* arg
 	return (PyObject*)py_swapchain;
 }
 
+static PyObject* d3d12_Device_create_heap(d3d12_Device* self, PyObject* args)
+{
+	int heap_type;
+	SIZE_T size;
+
+	if (!PyArg_ParseTuple(args, "iK", &heap_type, &size))
+		return NULL;
+
+	if (!size)
+		return PyErr_Format(Compushady_HeapError, "zero size heap");
+
+	d3d12_Device* py_device = d3d12_Device_get_device(self);
+	if (!py_device)
+		return NULL;
+
+	D3D12_HEAP_DESC heap_desc = {};
+	heap_desc.SizeInBytes = COMPUSHADY_ALIGN(size, D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT);
+	heap_desc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+
+	switch (heap_type)
+	{
+	case COMPUSHADY_HEAP_DEFAULT:
+		heap_desc.Properties.Type = D3D12_HEAP_TYPE_DEFAULT;
+		break;
+	case COMPUSHADY_HEAP_UPLOAD:
+		heap_desc.Properties.Type = D3D12_HEAP_TYPE_UPLOAD;;
+		break;
+	case COMPUSHADY_HEAP_READBACK:
+		heap_desc.Properties.Type = D3D12_HEAP_TYPE_READBACK;
+		break;
+	default:
+		return PyErr_Format(Compushady_HeapError, "invalid heap type: %d", heap_type);
+	}
+
+	ID3D12Heap* heap = NULL;
+
+	HRESULT hr = py_device->device->CreateHeap(&heap_desc, __uuidof(ID3D12Heap), (void**)&heap);
+
+	if (hr != S_OK)
+	{
+		return d3d_generate_exception(Compushady_HeapError, hr, "Unable to create ID3D12Heap");
+	}
+
+	d3d12_Heap* py_heap = COMPUSHADY_NEW(d3d12_Heap);
+	if (!py_heap)
+	{
+		heap->Release();
+		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Heap");
+	}
+	COMPUSHADY_CLEAR(py_heap);
+	py_heap->py_device = py_device;
+	Py_INCREF(py_heap->py_device);
+
+	py_heap->heap = heap;
+	py_heap->heap_type = heap_type;
+	py_heap->size = heap_desc.SizeInBytes;
+
+	return (PyObject*)py_heap;
+}
+
 
 static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 {
-	int heap;
+	int heap_type;
 	SIZE_T size;
 	UINT stride;
 	DXGI_FORMAT format;
-	if (!PyArg_ParseTuple(args, "iKIi", &heap, &size, &stride, &format))
+	PyObject* py_heap;
+	SIZE_T heap_offset;
+	if (!PyArg_ParseTuple(args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
 		return NULL;
 
 	if (format > 0)
@@ -634,7 +724,7 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 	D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
 
 	D3D12_HEAP_PROPERTIES heap_properties = {};
-	switch (heap)
+	switch (heap_type)
 	{
 	case COMPUSHADY_HEAP_DEFAULT:
 		heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -648,7 +738,7 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 		state = D3D12_RESOURCE_STATE_COPY_DEST;
 		break;
 	default:
-		return PyErr_Format(PyExc_ValueError, "invalid heap type: %d", heap);
+		return PyErr_Format(PyExc_ValueError, "invalid heap type: %d", heap_type);
 	}
 
 	D3D12_RESOURCE_DESC1 resource_desc = {};
@@ -667,7 +757,38 @@ static PyObject* d3d12_Device_create_buffer(d3d12_Device* self, PyObject* args)
 
 
 	ID3D12Resource1* resource;
-	HRESULT hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	HRESULT hr;
+
+	if (py_heap && py_heap != Py_None)
+	{
+		int ret = PyObject_IsInstance(py_heap, (PyObject*)&d3d12_Heap_Type);
+		if (ret < 0)
+		{
+			return NULL;
+		}
+		else if (ret == 0)
+		{
+			return PyErr_Format(PyExc_ValueError, "Expected a Heap object");
+		}
+
+		d3d12_Heap* py_d3d12_heap = (d3d12_Heap*)py_heap;
+		if (py_d3d12_heap->heap_type != heap_type)
+		{
+			return PyErr_Format(Compushady_BufferError, "incompatible heap type for Buffer");
+		}
+		if (heap_offset + size > py_d3d12_heap->size)
+		{
+			return PyErr_Format(PyExc_ValueError,
+				"supplied heap is not big enough for the resource size: (offset %llu) %llu "
+				"(required %llu)",
+				heap_offset, py_d3d12_heap->size, size);
+		}
+		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	}
+	else
+	{
+		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC*)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void**)&resource);
+	}
 
 	if (hr != S_OK)
 	{
@@ -1818,6 +1939,7 @@ static PyMethodDef d3d12_Device_methods[] = {
 	{"create_sampler", (PyCFunction)d3d12_Device_create_sampler, METH_VARARGS, "Creates a Sampler object"},
 	{"create_blas", (PyCFunction)d3d12_Device_create_blas, METH_VARARGS, "Creates Bottom Level Acceleration Structure object"},
 	{"create_tlas", (PyCFunction)d3d12_Device_create_tlas, METH_VARARGS, "Creates Top Level Acceleration Structure object"},
+	{"create_heap", (PyCFunction)d3d12_Device_create_heap, METH_VARARGS, "Creates a Heap object"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -2321,24 +2443,36 @@ static PyMethodDef compushady_backends_d3d12_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static struct PyModuleDef compushady_backends_d3d12_module = {
-	PyModuleDef_HEAD_INIT,
-	"d3d12",
-	NULL,
-	-1,
-	compushady_backends_d3d12_methods };
+static compushady_backend_desc_t d3d12_backend;
 
 PyMODINIT_FUNC
 PyInit_d3d12(void)
 {
-	PyObject* m = compushady_backend_init(
-		&compushady_backends_d3d12_module,
-		&d3d12_Device_Type, d3d12_Device_members, d3d12_Device_methods,
-		&d3d12_Resource_Type, d3d12_Resource_members, d3d12_Resource_methods,
-		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, d3d12_Swapchain_methods,
-		&d3d12_Compute_Type, NULL, d3d12_Compute_methods,
-		&d3d12_Sampler_Type, NULL, NULL
-	);
+	compushady_backend_desc_init(&d3d12_backend, "d3d12", compushady_backends_d3d12_methods);
+
+	d3d12_backend.device_type = &d3d12_Device_Type;
+	d3d12_backend.device_members = d3d12_Device_members;
+	d3d12_backend.device_methods = d3d12_Device_methods;
+
+	d3d12_backend.resource_type = &d3d12_Resource_Type;
+	d3d12_backend.resource_members = d3d12_Resource_members;
+	d3d12_backend.resource_methods = d3d12_Resource_methods;
+
+	d3d12_backend.swapchain_type = &d3d12_Swapchain_Type;
+	//d3d12_backend.swapchain_members = d3d12_Swapchain_members;
+	d3d12_backend.swapchain_methods = d3d12_Swapchain_methods;
+
+	d3d12_backend.compute_type = &d3d12_Compute_Type;
+	d3d12_backend.compute_methods = d3d12_Compute_methods;
+
+	d3d12_backend.sampler_type = &d3d12_Sampler_Type;
+
+	d3d12_backend.heap_type = &d3d12_Heap_Type;
+	d3d12_backend.heap_members = d3d12_Heap_members;
+
+	PyObject* m = compushady_backend_init(&d3d12_backend);
+	if (!m)
+		return NULL;
 
 	dxgi_init_pixel_formats();
 
