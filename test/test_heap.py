@@ -36,7 +36,8 @@ class HeapTests(unittest.TestCase):
         buffer1 = Buffer(size=1024, heap_type=HEAP_UPLOAD, heap=heap_upload)
         buffer0.upload(b'\x01', offset=0)
         buffer1.upload(b'\x02', offset=1)
-        buffer2 = Buffer(size=1024, heap_type=HEAP_READBACK, heap=heap_readback)
+        buffer2 = Buffer(size=1024, heap_type=HEAP_READBACK,
+                         heap=heap_readback)
         buffer1.copy_to(buffer2)
         self.assertEqual(buffer2.readback(2), b'\x01\x02')
 
@@ -47,6 +48,22 @@ class HeapTests(unittest.TestCase):
         buffer1 = Buffer(size=1024, heap_type=HEAP_UPLOAD, heap=heap_upload)
         buffer0.upload(b'\x01', offset=0)
         buffer1.upload(b'\x02\x03', offset=0)
-        buffer2 = Buffer(size=1024, heap_type=HEAP_READBACK, heap=heap_readback)
+        buffer2 = Buffer(size=1024, heap_type=HEAP_READBACK,
+                         heap=heap_readback)
         buffer1.copy_to(buffer2)
         self.assertEqual(buffer2.readback(2), b'\x02\x03')
+
+    def test_heap_buffer_append(self):
+        heap_upload = Heap(HEAP_UPLOAD, 1024)
+        heap_readback = Heap(HEAP_READBACK, 1024)
+        buffer0 = Buffer(size=256, heap_type=HEAP_UPLOAD,
+                         heap=heap_upload, heap_offset=256)
+        buffer1 = Buffer(size=256, heap_type=HEAP_UPLOAD,
+                         heap=heap_upload, heap_offset=512)
+        buffer0.upload(b'\x01\x02', offset=0)
+        buffer1.upload(b'\x03\x04', offset=0)
+        buffer2 = Buffer(size=1024, heap_type=HEAP_READBACK,
+                         heap=heap_readback)
+        buffer1.copy_to(buffer2)
+        self.assertEqual(buffer2.readback(2, offset=256), b'\x01\x02')
+        self.assertEqual(buffer2.readback(2, offset=512), b'\x03\x04')

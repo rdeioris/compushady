@@ -521,13 +521,14 @@ static metal_Device* metal_Device_get_device(metal_Device* self)
 
 static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
 {
-    int heap;
+    int heap_type;
     size_t size;
     uint32_t stride;
     int format;
     PyObject* py_heap;
     size_t heap_offset;
-    if (!PyArg_ParseTuple(args, "iKIiOK", &heap, &size, &stride, &format, &py_heap, &heap_offset))
+    if (!PyArg_ParseTuple(
+            args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
         return NULL;
 
     if (!size)
@@ -548,7 +549,7 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
     MTLResourceOptions options = MTLResourceStorageModePrivate;
     MTLStorageMode storage_mode = MTLStorageModePrivate;
 
-    switch (heap)
+    switch (heap_type)
     {
     case COMPUSHADY_HEAP_DEFAULT:
         break;
@@ -561,7 +562,7 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
         storage_mode = MTLStorageModeShared;
         break;
     default:
-        return PyErr_Format(PyExc_Exception, "Invalid heap type: %d", heap);
+        return PyErr_Format(PyExc_ValueError, "Invalid heap type: %d", heap_type);
     }
 
     id<MTLBuffer> buffer = NULL;
@@ -579,6 +580,17 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
         }
 
         metal_Heap* py_metal_heap = (metal_Heap*)py_heap;
+        if (py_metal_heap->heap_type != heap_type)
+        {
+            return PyErr_Format(Compushady_BufferError, "incompatible heap type for Buffer");
+        }
+        if (heap_offset + size > py_metal_heap->size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                "supplied heap is not big enough for the resource size: (offset %llu) %llu "
+                "(required %llu)",
+                heap_offset, py_metal_heap->size, size);
+        }
         buffer = [py_metal_heap->heap newBufferWithLength:size options:options offset:heap_offset];
     }
     else
