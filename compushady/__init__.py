@@ -13,6 +13,9 @@ SHADER_BINARY_TYPE_DXBC = 2
 SHADER_BINARY_TYPE_MSL = 3
 SHADER_BINARY_TYPE_GLSL = 4
 
+SHADER_TARGET_TYPE_CS = 0
+SHADER_TARGET_TYPE_LIB = 1
+
 SAMPLER_FILTER_POINT = 0
 SAMPLER_FILTER_LINEAR = 1
 
@@ -204,6 +207,20 @@ class Texture3D(Resource):
         return self.handle.row_pitch
 
 
+class BLAS(Resource):
+    def __init__(self, vertex_buffer, index_buffer=None, device=None):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_blas(
+            vertex_buffer.handle, index_buffer.handle if index_buffer else None
+        )
+
+
+class TLAS(Resource):
+    def __init__(self, blas, device=None):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_tlas(blas.handle)
+
+
 class Swapchain:
     def __init__(
         self, window_handle, format, num_buffers=3, device=None, width=0, height=0
@@ -254,3 +271,18 @@ class Compute:
 
     def dispatch(self, x, y, z):
         self.handle.dispatch(x, y, z)
+
+
+class RayTracer:
+    def __init__(self, shader, cbv=[], srv=[], uav=[], samplers=[], device=None):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_raytracer(
+            shader,
+            cbv=[resource.handle for resource in cbv],
+            srv=[resource.handle for resource in srv],
+            uav=[resource.handle for resource in uav],
+            samplers=[sampler.handle for sampler in samplers],
+        )
+
+    def dispatch_rays(self, x, y, z):
+        self.handle.dispatch_rays(x, y, z)

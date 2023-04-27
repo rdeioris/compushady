@@ -30,12 +30,17 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	Py_buffer view;
 	PyObject* py_entry_point;
 	int shader_binary_type;
-	if (!PyArg_ParseTuple(args, "s*Ui", &view, &py_entry_point, &shader_binary_type))
+	int target_type;
+	if (!PyArg_ParseTuple(args, "s*Uii", &view, &py_entry_point, &shader_binary_type, &target_type))
 		return NULL;
 
 #ifdef _WIN32
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_DXBC)
 	{
+		if (target_type != COMPUSHADY_SHADER_TARGET_TYPE_CS)
+		{
+			return PyErr_Format(PyExc_Exception, "only compute shaders are supported in DXBC mode");
+		}
 		ID3DBlob* blob = NULL;
 		ID3D10Blob* error_messages = NULL;
 		const char* entry_point = PyUnicode_AsUTF8(py_entry_point);
@@ -142,7 +147,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	}
 
 	IDxcOperationResult* result;
-	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
+	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target_type == COMPUSHADY_SHADER_TARGET_TYPE_LIB ? L"lib_6_6" : L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);
