@@ -28,6 +28,10 @@ class UnknownBackend(Exception):
     pass
 
 
+class DeviceException(Exception):
+    pass
+
+
 class BufferException(Exception):
     pass
 
@@ -112,10 +116,21 @@ class Resource:
 
 
 class Buffer(Resource):
-    def __init__(self, size, heap_type=HEAP_DEFAULT, stride=0, format=0, heap=None, heap_offset=0, device=None):
+    def __init__(
+        self,
+        size,
+        heap_type=HEAP_DEFAULT,
+        stride=0,
+        format=0,
+        heap=None,
+        heap_offset=0,
+        device=None,
+    ):
         self.device = device if device else get_current_device()
+        self.heap = heap
         self.handle = self.device.create_buffer(
-            heap_type, size, stride, format, heap.handle if heap else None, heap_offset)
+            heap_type, size, stride, format, heap.handle if heap else None, heap_offset
+        )
 
     def upload(self, data, offset=0):
         self.handle.upload(data, offset)
@@ -138,8 +153,10 @@ class Buffer(Resource):
 class Texture1D(Resource):
     def __init__(self, width, format, heap=None, heap_offset=0, device=None):
         self.device = device if device else get_current_device()
+        self.heap = heap
         self.handle = self.device.create_texture1d(
-            width, format, heap, heap_offset)
+            width, format, heap.handle if heap else None, heap_offset
+        )
 
     @classmethod
     def from_native(cls, ptr, device=None):
@@ -160,8 +177,10 @@ class Texture1D(Resource):
 class Texture2D(Resource):
     def __init__(self, width, height, format, heap=None, heap_offset=0, device=None):
         self.device = device if device else get_current_device()
+        self.heap = heap
         self.handle = self.device.create_texture2d(
-            width, height, format, heap, heap_offset)
+            width, height, format, heap.handle if heap else None, heap_offset
+        )
 
     @classmethod
     def from_native(cls, ptr, width, height, format, device=None):
@@ -186,10 +205,14 @@ class Texture2D(Resource):
 
 
 class Texture3D(Resource):
-    def __init__(self, width, height, depth, format, heap=None, heap_offset=0, device=None):
+    def __init__(
+        self, width, height, depth, format, heap=None, heap_offset=0, device=None
+    ):
         self.device = device if device else get_current_device()
+        self.heap = heap
         self.handle = self.device.create_texture3d(
-            width, height, depth, format, heap, heap_offset)
+            width, height, depth, format, heap.handle if heap else None, heap_offset
+        )
 
     @classmethod
     def from_native(cls, ptr, device=None):

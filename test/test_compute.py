@@ -68,7 +68,7 @@ class ComputeTests(unittest.TestCase):
 
     def test_simple_struct(self):
         b0 = Buffer(16, stride=8)
-        b1 = Buffer(b0.size, HEAP_READBACK)
+        b1 = Buffer(16, HEAP_READBACK)
         shader = hlsl.compile(
             """
         struct Block

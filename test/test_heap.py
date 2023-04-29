@@ -2,13 +2,14 @@ import unittest
 from compushady import (
     Heap,
     Buffer,
-    BufferException,
     HEAP_UPLOAD,
     HEAP_READBACK,
     HEAP_DEFAULT,
     HeapException,
-    get_current_device,
+    Texture1D,
+    Texture1DException,
 )
+from compushady.formats import R8G8B8A8_UNORM
 import compushady.config
 
 compushady.config.set_debug(True)
@@ -37,6 +38,7 @@ class HeapTests(unittest.TestCase):
         heap = Heap(HEAP_DEFAULT, 64 * 1024)
         buffer = Buffer(size=64 * 1024, heap_type=HEAP_DEFAULT, heap=heap)
         self.assertEqual(buffer.size, heap.size)
+        self.assertEqual(buffer.heap, heap)
 
     def test_heap_buffer_alias(self):
         heap_upload = Heap(HEAP_UPLOAD, 1024)
@@ -78,3 +80,20 @@ class HeapTests(unittest.TestCase):
         buffer_all.copy_to(buffer2)
         self.assertEqual(buffer2.readback(2, offset=64 * 1024), b"\x01\x02")
         self.assertEqual(buffer2.readback(2, offset=128 * 1024), b"\x03\x04")
+
+    def test_heap_texture1d(self):
+        heap = Heap(HEAP_DEFAULT, 2 * 4)
+        texture = Texture1D(2, format=R8G8B8A8_UNORM, heap=heap)
+        self.assertEqual(texture.heap, heap)
+
+    def test_heap_texture1d_wrong_upload(self):
+        heap = Heap(HEAP_UPLOAD, 2 * 4)
+        self.assertRaises(
+            Texture1DException, Texture1D, 2, format=R8G8B8A8_UNORM, heap=heap
+        )
+
+    def test_heap_texture1d_wrong_readback(self):
+        heap = Heap(HEAP_READBACK, 2 * 4)
+        self.assertRaises(
+            Texture1DException, Texture1D, 2, format=R8G8B8A8_UNORM, heap=heap
+        )

@@ -1,5 +1,6 @@
 #include "compushady.h"
 
+PyObject* Compushady_DeviceError = NULL;
 PyObject* Compushady_BufferError = NULL;
 PyObject* Compushady_Texture1DError = NULL;
 PyObject* Compushady_Texture2DError = NULL;
@@ -38,6 +39,13 @@ PyObject* compushady_backend_init(compushady_backend_desc* compushady_backend)
     {
         Py_DECREF(py_compushady);
         return NULL;
+    }
+
+    Compushady_DeviceError = PyDict_GetItemString(py_compushady_dict, "DeviceException");
+    if (!Compushady_DeviceError)
+    {
+        Py_DECREF(py_compushady);
+        return PyErr_Format(PyExc_ImportError, "Unable to find compushady.DeviceException");
     }
 
     Compushady_BufferError = PyDict_GetItemString(py_compushady_dict, "BufferException");
