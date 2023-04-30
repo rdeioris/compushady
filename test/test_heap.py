@@ -8,6 +8,8 @@ from compushady import (
     HeapException,
     Texture1D,
     Texture1DException,
+    Texture2D,
+    Texture2DException,
 )
 from compushady.formats import R8G8B8A8_UNORM
 import compushady.config
@@ -96,4 +98,15 @@ class HeapTests(unittest.TestCase):
         heap = Heap(HEAP_READBACK, 2 * 4)
         self.assertRaises(
             Texture1DException, Texture1D, 2, format=R8G8B8A8_UNORM, heap=heap
+        )
+
+    def test_heap_texture2d_oversize(self):
+        heap = Heap(HEAP_DEFAULT, 1024)
+        self.assertRaises(
+            Texture2DException,
+            Texture2D,
+            16384,
+            16384,
+            format=R8G8B8A8_UNORM,
+            heap=heap,
         )

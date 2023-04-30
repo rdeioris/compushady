@@ -146,8 +146,33 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"0");
 	}
 
+	LPCWSTR target_name;
+	if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_CS)
+	{
+		target_name = L"cs_6_0";
+	}
+	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_LIB)
+	{
+		target_name = L"lib_6_6";
+	}
+	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_VS)
+	{
+		target_name = L"vs_6_0";
+	}
+	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_PS)
+	{
+		target_name = L"ps_6_0";
+	}
+	else
+	{
+		blob_source->Release();
+		dxc_compiler->Release();
+		dxc_library->Release();
+		return PyErr_Format(PyExc_Exception, "Unsupported shader type");
+	}
+
 	IDxcOperationResult* result;
-	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target_type == COMPUSHADY_SHADER_TARGET_TYPE_LIB ? L"lib_6_6" : L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
+	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target_name, arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);

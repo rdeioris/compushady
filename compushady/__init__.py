@@ -15,6 +15,8 @@ SHADER_BINARY_TYPE_GLSL = 4
 
 SHADER_TARGET_TYPE_CS = 0
 SHADER_TARGET_TYPE_LIB = 1
+SHADER_TARGET_TYPE_VS = 2
+SHADER_TARGET_TYPE_PS = 3
 
 SAMPLER_FILTER_POINT = 0
 SAMPLER_FILTER_LINEAR = 1
@@ -331,3 +333,39 @@ class RayTracer:
 
     def dispatch_rays(self, x, y, z):
         self.handle.dispatch_rays(x, y, z)
+
+
+class Rasterizer:
+    def __init__(
+        self,
+        vertex_shader,
+        pixel_shader,
+        rtv=[],
+        dsv=None,
+        cbv=[],
+        srv=[],
+        uav=[],
+        samplers=[],
+        wireframe=False,
+        device=None,
+    ):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_rasterizer(
+            vertex_shader,
+            pixel_shader,
+            rtv=[resource.handle for resource in rtv],
+            dsv=dsv.handle if dsv else None,
+            cbv=[resource.handle for resource in cbv],
+            srv=[resource.handle for resource in srv],
+            uav=[resource.handle for resource in uav],
+            samplers=[sampler.handle for sampler in samplers],
+            wireframe=wireframe,
+        )
+
+    def draw(self, number_of_vertices, number_of_instances=1):
+        self.handle.draw(number_of_vertices, number_of_instances)
+
+    def draw_indexed(self, index_buffer, number_of_vertices, number_of_instances=1):
+        self.handle.draw_indexed(
+            index_buffer.handle, number_of_vertices, number_of_instances
+        )
