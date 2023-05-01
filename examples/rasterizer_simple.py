@@ -18,6 +18,8 @@ from compushady.formats import (
     R32G32B32_FLOAT,
     R8G8B8A8_UNORM,
     R32G32_FLOAT,
+    R16G16B16A16_UINT,
+    R32G32B32A32_FLOAT,
 )
 import compushady.config
 
@@ -25,7 +27,7 @@ import glfw
 import platform
 import struct
 import sys
-from pyrr import Matrix44
+from pyrr import Matrix44, Quaternion
 import numpy
 
 from dugltf import DuGLTF, GLTF_USHORT, GLTF_INT, GLTF_FLOAT
@@ -81,6 +83,7 @@ for primitive in gltf.get_primitives(found_node["mesh"]):
             heap_type=HEAP_DEFAULT,
         )
     for attribute in primitive["attributes"]:
+        print(attribute)
         if attribute == "POSITION":
             data = gltf.get_accessor_data(primitive["attributes"]["POSITION"])
             vertex_buffer = upload_to_gpu(
@@ -96,6 +99,20 @@ for primitive in gltf.get_primitives(found_node["mesh"]):
                 stride=0,  # 4 * 3,
                 format=R32G32_FLOAT,
             )
+        elif attribute == "JOINTS_0":
+            data = gltf.get_accessor_data(primitive["attributes"]["JOINTS_0"])
+            joints_buffer = upload_to_gpu(
+                data,
+                stride=0,  # 4 * 3,
+                format=R16G16B16A16_UINT,
+            )
+        elif attribute == "WEIGHTS_0":
+            data = gltf.get_accessor_data(primitive["attributes"]["WEIGHTS_0"])
+            weights_buffer = upload_to_gpu(
+                data,
+                stride=0,  # 4 * 3,
+                format=R32G32B32A32_FLOAT,
+            )
     if "material" in primitive:
         material = gltf.get_material(primitive["material"])
         print(material)
@@ -108,6 +125,62 @@ for primitive in gltf.get_primitives(found_node["mesh"]):
             image.tobytes(), texture.row_pitch, texture.width, texture.height, 4
         )
         staging.copy_to(texture)
+
+    inverse_bind_matrices_buffer = upload_to_gpu(
+        gltf.get_inverse_bind_matrices(0), stride=64, format=0
+    )
+
+    pose_data = [None] * len(gltf.get_joints(0))
+    for joint_id, node_id in enumerate(gltf.get_joints(0)):
+        parent_id = gltf.get_node_parent(node_id)
+        
+        try:
+            parent_matrix = pose_data[gltf.get_joint_from_node(0, parent_id)]
+
+            print(joint_id, "parent", parent_id, gltf.get_joint_from_node(0, parent_id))
+        except:
+            print("not found for joint", joint_id)
+            parent_matrix = Matrix44.identity(dtype=numpy.float32)
+
+        sampler_id = gltf.get_animation_sampler_by_node_and_path(0, node_id, "rotation")
+        frame = gltf.get_animation_sampler_frames(
+            gltf.get_animation_sampler(0, sampler_id), "rotation"
+        )[0]
+        q = Quaternion(frame[1])
+
+        sampler_id = gltf.get_animation_sampler_by_node_and_path(
+            0, node_id, "translation"
+        )
+        frame = gltf.get_animation_sampler_frames(
+            gltf.get_animation_sampler(0, sampler_id), "translation"
+        )[0]
+
+        # print(frame)
+
+        frame_matrix = Matrix44.from_translation(
+            frame[1], dtype=numpy.float32
+        ) * Matrix44.from_quaternion(q, dtype=numpy.float32)
+
+        print(gltf.get_node(node_id)["name"], frame[1], q)
+
+        pose_data[joint_id] = parent_matrix * frame_matrix
+
+        # print(pose_data[-1])
+        continue
+
+        bone_matrix_inverse = Matrix44(
+            gltf.get_inverse_bind_matrix(0, joint_id), dtype=numpy.float32
+        )
+        bone_matrix = bone_matrix_inverse.inverse
+
+        pose_data.append(bone_matrix)
+
+    pose_bytes = b""
+    for pose in pose_data:
+        pose_bytes += pose.tobytes()
+    pose_buffer = upload_to_gpu(pose_bytes, stride=64, format=0)
+
+    print(len(gltf.get_joints(0)), len(pose_bytes), len(pose_data))
 
 
 print(index_buffer, vertex_buffer, index_buffer.size, index_count, vertex_count)
@@ -148,15 +221,61 @@ Buffer<uint> indices : register(t0);
 Buffer<float3> vertices : register(t1);
 Buffer<float2> uvs : register(t2);
 RWStructuredBuffer<uint> output_buffer : register(u0);
+
+Buffer<uint4> joints : register(t4);
+Buffer<float4> weights : register(t5);
+StructuredBuffer<float4x4> inverse_bind_matrices: register(t6);
+StructuredBuffer<float4x4> pose: register(t7);
+
 Output main(uint vid : SV_VertexID)
 {
     Output output;
     uint index = indices[vid];
-    float4 world_pos = mul(transform.world, float4(vertices[vid].xyz, 1));
+
+    uint bone_index0 = joints[index].x;
+    uint bone_index1 = joints[index].y;
+    uint bone_index2 = joints[index].z;
+    uint bone_index3 = joints[index].w;
+
+    float weight0 = weights[index].x;
+    float weight1 = weights[index].y;
+    float weight2 = weights[index].z;
+    float weight3 = weights[index].w;
+
+    output_buffer[vid] = bone_index0;
+
+    float3 vertex = vertices[index];
+
+    float4x4 bone_matrix0 = mul(pose[bone_index0], inverse_bind_matrices[bone_index0]);
+    float4 pos0 = mul(bone_matrix0, float4(vertex, 1));
+
+    float4x4 bone_matrix1 = mul(pose[bone_index1], inverse_bind_matrices[bone_index1]);
+    float4 pos1 = mul(bone_matrix1, float4(vertex, 1));
+
+    float4x4 bone_matrix2 = mul(pose[bone_index2], inverse_bind_matrices[bone_index2]);
+    float4 pos2 = mul(bone_matrix2, float4(vertex, 1));
+
+    float4x4 bone_matrix3 = mul(pose[bone_index3], inverse_bind_matrices[bone_index3]);
+    float4 pos3 = mul(bone_matrix3, float4(vertex, 1));
+
+    /*float4x4 bone_matrix0 = mul(inverse_bind_matrices[bone_index0], pose[bone_index0]);
+    float4 pos0 = mul(bone_matrix0, float4(vertex, 1));
+
+    float4x4 bone_matrix1 = mul(inverse_bind_matrices[bone_index1], pose[bone_index1]);
+    float4 pos1 = mul(bone_matrix1, float4(vertex, 1));
+
+    float4x4 bone_matrix2 = mul(inverse_bind_matrices[bone_index2], pose[bone_index2]);
+    float4 pos2 = mul(bone_matrix2, float4(vertex, 1));
+
+    float4x4 bone_matrix3 = mul(inverse_bind_matrices[bone_index3], pose[bone_index3]);
+    float4 pos3 = mul(bone_matrix3, float4(vertex, 1));*/
+   
+    float4 world_pos = mul(transform.world, float4(pos0.xyz * weight0 + pos1.xyz * weight1 + pos2.xyz * weight2 + pos3.xyz * weight3, 1));
+
     output.position = mul(transform.projection, world_pos);
     output.color = float3(1, 1, 0);
-    output.uv = uvs[vid];
-    output_buffer[vid] = index;
+    output.uv = uvs[index];
+  
     return output;
 }
 """,
@@ -198,10 +317,19 @@ rasterizer = Rasterizer(
     rtv=[target],
     dsv=depth,
     cbv=[transform],
-    srv=[index_buffer, vertex_buffer, uv_buffer, texture],
+    srv=[
+        index_buffer,
+        vertex_buffer,
+        uv_buffer,
+        texture,
+        joints_buffer,
+        weights_buffer,
+        inverse_bind_matrices_buffer,
+        pose_buffer,
+    ],
     uav=[output_buffer],
     samplers=[Sampler()],
-    wireframe=False,
+    wireframe=True,
 )
 
 print("done", rasterizer)
@@ -243,17 +371,20 @@ void main(int3 tid : SV_DispatchThreadID)
     uav=[target],
 )
 
-rot = 0
+rot = numpy.radians(90)
 while not glfw.window_should_close(window):
     glfw.poll_events()
     clear.dispatch(1024 // 8, 1024 // 8, 1)
     rot += 0.01
-    world = Matrix44.from_translation(
-        (0, numpy.sin(rot), -5), dtype=numpy.float32
-    ) * Matrix44.from_y_rotation(rot, dtype=numpy.float32)
+    world = (
+        Matrix44.from_translation((0, -1, -2), dtype=numpy.float32)
+        * Matrix44.from_z_rotation(rot, dtype=numpy.float32)
+        * Matrix44.from_y_rotation(numpy.radians(90), dtype=numpy.float32)
+    )
+
     transform.upload(world.tobytes() + perspective.tobytes())
-    # rasterizer.draw(index_count)
-    rasterizer.draw_indexed(index_buffer, index_count)
+    rasterizer.draw(index_count)
+    # rasterizer.draw_indexed(index_buffer, index_count)
     swapchain.present(target)
 
 swapchain = None  # this ensures the swapchain is destroyed before the window

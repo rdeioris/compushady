@@ -364,8 +364,3 @@ class Rasterizer:
 
     def draw(self, number_of_vertices, number_of_instances=1):
         self.handle.draw(number_of_vertices, number_of_instances)
-
-    def draw_indexed(self, index_buffer, number_of_vertices, number_of_instances=1):
-        self.handle.draw_indexed(
-            index_buffer.handle, number_of_vertices, number_of_instances
-        )

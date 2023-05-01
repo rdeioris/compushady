@@ -584,7 +584,7 @@ static PyObject* d3d12_Device_create_swapchain(d3d12_Device* self, PyObject* arg
 	uint32_t width = 0;
 	uint32_t height = 0;
 
-	if (!PyArg_ParseTuple(args, "KiI|ii", &window_handle, &format, &num_buffers))
+	if (!PyArg_ParseTuple(args, "KiI|ii", &window_handle, &format, &num_buffers, &width, &height))
 		return NULL;
 
 	d3d12_Device* py_device = d3d12_Device_get_device(self);
@@ -2797,75 +2797,6 @@ static PyObject* d3d12_Compute_draw(d3d12_Compute* self, PyObject* args)
 	Py_RETURN_NONE;
 }
 
-static PyObject* d3d12_Compute_draw_indexed(d3d12_Compute* self, PyObject* args)
-{
-	PyObject* py_buffer;
-	UINT number_of_indices;
-	UINT number_of_instances;
-	if (!PyArg_ParseTuple(args, "OII", &py_buffer, &number_of_indices, &number_of_instances))
-		return NULL;
-
-
-	int ret = PyObject_IsInstance(py_buffer, (PyObject*)&d3d12_Resource_Type);
-	if (ret < 0)
-	{
-
-		return NULL;
-	}
-	else if (ret == 0)
-	{
-		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
-	}
-
-	d3d12_Resource* index_buffer = (d3d12_Resource*)py_buffer;
-
-	self->py_device->command_allocator->Reset();
-	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
-
-	self->py_device->command_list->SetDescriptorHeaps(self->num_heaps, self->descriptor_heaps);
-
-	self->py_device->command_list->SetGraphicsRootSignature(self->root_signature);
-
-	for (UINT i = 0; i < self->num_heaps; i++)
-	{
-		self->py_device->command_list->SetGraphicsRootDescriptorTable(i, self->descriptor_heaps[i]->GetGPUDescriptorHandleForHeapStart());
-	}
-
-	D3D12_CPU_DESCRIPTOR_HANDLE rtv = self->rtv_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
-	D3D12_CPU_DESCRIPTOR_HANDLE dsv;
-
-	if (self->dsv_descriptor_heap)
-		dsv = self->dsv_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
-
-	self->py_device->command_list->ResourceBarrier(self->num_rtv, self->barriers_before);
-	if (self->dsv_descriptor_heap)
-	{
-		self->py_device->command_list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1, 0, 0, NULL);
-	}
-	self->py_device->command_list->RSSetViewports(1, &self->viewport);
-	self->py_device->command_list->RSSetScissorRects(1, &self->scissor);
-	self->py_device->command_list->OMSetRenderTargets(self->num_rtv, &rtv, true, self->dsv_descriptor_heap ? &dsv : NULL);
-	D3D12_INDEX_BUFFER_VIEW index_buffer_view = {};
-	index_buffer_view.Format = index_buffer->format;
-	index_buffer_view.BufferLocation = index_buffer->resource->GetGPUVirtualAddress();
-	index_buffer_view.SizeInBytes = index_buffer->requested_size;
-
-	self->py_device->command_list->IASetIndexBuffer(&index_buffer_view);
-	self->py_device->command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	self->py_device->command_list->DrawIndexedInstanced(number_of_indices, number_of_instances, 0, 0, 0);
-	self->py_device->command_list->ResourceBarrier(self->num_rtv, self->barriers_after);
-	self->py_device->command_list->Close();
-
-	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList**)&self->py_device->command_list);
-	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
-	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
-	Py_BEGIN_ALLOW_THREADS;
-	WaitForSingleObject(self->py_device->fence_event, INFINITE);
-	Py_END_ALLOW_THREADS;
-
-	Py_RETURN_NONE;
-}
-
 static PyObject* d3d12_Compute_dispatch_rays(d3d12_Compute* self, PyObject* args)
 {
 	UINT x, y, z;
@@ -2926,7 +2857,6 @@ static PyMethodDef d3d12_Compute_methods[] = {
 	{"dispatch", (PyCFunction)d3d12_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
 	{"dispatch_rays", (PyCFunction)d3d12_Compute_dispatch_rays, METH_VARARGS, "Execute a RayTracer Pipeline"},
 	{"draw", (PyCFunction)d3d12_Compute_draw, METH_VARARGS, "Rasterize a set of vertices"},
-	{"draw_indexed", (PyCFunction)d3d12_Compute_draw_indexed, METH_VARARGS, "Rasterize a set of indexed vertices"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
