@@ -3,7 +3,7 @@ MIT License
 
 Copyright (c) Duality Robotics (https://duality.ai)
 Copyright (c) Heat - SPA (https://heat.tech/)
-Copyright (c) Roberto De Ioris (roberto.deioris@gmail.com) 
+Copyright (c) Roberto De Ioris (roberto.deioris@gmail.com)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -54,7 +54,7 @@ def fix_uv(uv):
 
 def chunks(items, n):
     for i in range(0, len(items), n):
-        yield items[i : i + n]
+        yield items[i: i + n]
 
 
 class DuGLTF:
@@ -80,12 +80,12 @@ class DuGLTF:
                 data = handle.read()
                 if data[0:4] == b"glTF":
                     chunk_length, _ = struct.unpack("II", data[12:20])
-                    json_data = data[20 : 20 + chunk_length]
+                    json_data = data[20: 20 + chunk_length]
                     binary_length, _ = struct.unpack(
-                        "II", data[20 + chunk_length : 20 + chunk_length + 8]
+                        "II", data[20 + chunk_length: 20 + chunk_length + 8]
                     )
                     self.binary = data[
-                        20 + chunk_length + 8 : 20 + chunk_length + 8 + binary_length
+                        20 + chunk_length + 8: 20 + chunk_length + 8 + binary_length
                     ]
                 else:
                     json_data = data
@@ -185,7 +185,8 @@ class DuGLTF:
     def set_material_pbr(self, material_id, items):
         if "pbrMetallicRoughness" not in self.gltf["materials"][material_id]:
             self.gltf["materials"][material_id]["pbrMetallicRoughness"] = {}
-        self.gltf["materials"][material_id]["pbrMetallicRoughness"].update(items)
+        self.gltf["materials"][material_id]["pbrMetallicRoughness"].update(
+            items)
 
     def set_material_items(self, material_id, items):
         self.gltf["materials"][material_id].update(items)
@@ -304,17 +305,21 @@ class DuGLTF:
         _min=None,
         _max=None,
     ):
-        formats = {GLTF_INT: ("I", 4), GLTF_FLOAT: ("f", 4), GLTF_USHORT: ("H", 2)}
-        element_type = {1: "SCALAR", 2: "VEC2", 3: "VEC3", 4: "VEC4", 16: "MAT4"}
+        formats = {GLTF_INT: ("I", 4), GLTF_FLOAT: (
+            "f", 4), GLTF_USHORT: ("H", 2)}
+        element_type = {1: "SCALAR", 2: "VEC2",
+                        3: "VEC3", 4: "VEC4", 16: "MAT4"}
         if not raw:
             buffer_view, buffer_length = self.add_buffer_view(
                 struct.pack(
-                    "{0}{1}".format(len(data), formats[component_type][0]), *data
+                    "{0}{1}".format(
+                        len(data), formats[component_type][0]), *data
                 ),
                 target=target,
             )
         else:
-            buffer_view, buffer_length = self.add_buffer_view(data, target=target)
+            buffer_view, buffer_length = self.add_buffer_view(
+                data, target=target)
         self.gltf["accessors"].append(
             {
                 "bufferView": buffer_view,
@@ -438,10 +443,10 @@ class DuGLTF:
                 ]
                 for prefix in prefixes:
                     if uri.startswith(prefix):
-                        return base64.b64decode(uri[len(prefix) :])[
-                            byte_offset : byte_offset + byte_length
+                        return base64.b64decode(uri[len(prefix):])[
+                            byte_offset: byte_offset + byte_length
                         ]
-        return self.binary[byte_offset : byte_offset + byte_length]
+        return self.binary[byte_offset: byte_offset + byte_length]
 
     def get_accessor_size(self, accessor_id):
         component_type_size = {GLTF_INT: 4, GLTF_FLOAT: 4, GLTF_USHORT: 2}
@@ -459,7 +464,7 @@ class DuGLTF:
         offset = 0
         if "byteOffset" in accessor:
             offset = accessor["byteOffset"]
-        return data[offset : offset + size]
+        return data[offset: offset + size]
 
     def _make_node_orphan(self, node_id):
         for node in self.gltf["nodes"]:
@@ -502,7 +507,7 @@ class DuGLTF:
         data = self.get_accessor_data(skin["inverseBindMatrices"])
         items = struct.unpack("{0}f".format(len(data) // 4), data)
         offset = joint_id * 16
-        return items[offset : offset + 16]
+        return items[offset: offset + 16]
 
     def get_inverse_bind_matrices(self, skin_id):
         skin = self.get_skin(skin_id)
@@ -528,11 +533,11 @@ class DuGLTF:
         if path in ("translation", "scale"):
             values = struct.unpack("{0}f".format(len(_output) // 4), _output)
             for i in range(0, len(times)):
-                frames.append([times[i], values[i * 3 : i * 3 + 3]])
+                frames.append([times[i], values[i * 3: i * 3 + 3]])
         elif path == "rotation":
             values = struct.unpack("{0}f".format(len(_output) // 4), _output)
             for i in range(0, len(times)):
-                frames.append([times[i], values[i * 4 : i * 4 + 4]])
+                frames.append([times[i], values[i * 4: i * 4 + 4]])
         return frames
 
     def get_skin(self, skin_id):
@@ -561,6 +566,15 @@ class DuGLTF:
 
     def get_image_data(self, image_id):
         image = self.get_image(image_id)
+        uri = image.get("uri", None)
+        if uri is not None:
+            prefixes = [
+                "data:image/jpeg;base64,",
+                "data:image/png;base64,",
+            ]
+            for prefix in prefixes:
+                if uri.startswith(prefix):
+                    return base64.b64decode(uri[len(prefix):]), prefix[5:].split(';')[0]
         return self.get_buffer_view_data(image["bufferView"]), image["mimeType"]
 
     def get_meshes(self):
@@ -591,7 +605,8 @@ class DuGLTF:
                     "<III",
                     0x46546C67,
                     2,
-                    len(chunk) + len(self.binary) + 12 + 8 + (8 if self.binary else 0),
+                    len(chunk) + len(self.binary) + 12 +
+                    8 + (8 if self.binary else 0),
                 )
             )
 
@@ -608,11 +623,13 @@ class DuGLTF:
         with ZipFile(filename, "w", compression=ZIP_DEFLATED) as zip:
             if self.binary:
                 self.gltf["buffers"] = [
-                    {"byteLength": len(self.binary), "uri": "{0}.bin".format(name)}
+                    {"byteLength": len(self.binary),
+                     "uri": "{0}.bin".format(name)}
                 ]
                 zip.writestr("{0}.bin".format(name), self.binary)
             self._cleanup()
-            zip.writestr("{0}.gltf".format(name), json.dumps(self.gltf).encode())
+            zip.writestr("{0}.gltf".format(name),
+                         json.dumps(self.gltf).encode())
 
     def save_embedded(self, filename, indent=True):
         if self.binary:

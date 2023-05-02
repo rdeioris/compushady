@@ -20,6 +20,7 @@ from compushady.formats import (
     R32G32_FLOAT,
     R16G16B16A16_UINT,
     R32G32B32A32_FLOAT,
+    D32_FLOAT
 )
 import compushady.config
 
@@ -88,12 +89,14 @@ for primitive in gltf.get_primitives(found_node["mesh"]):
             data = gltf.get_accessor_data(primitive["attributes"]["POSITION"])
             vertex_buffer = upload_to_gpu(
                 data,
-                stride=0,  # 4 * 3,
-                format=R32G32B32_FLOAT,
+                stride=12,  # 4 * 3,
+                format=0  # R32G32B32_FLOAT,
             )
-            vertex_count = gltf.get_accessor_count(primitive["attributes"]["POSITION"])
+            vertex_count = gltf.get_accessor_count(
+                primitive["attributes"]["POSITION"])
         elif attribute == "TEXCOORD_0":
-            data = gltf.get_accessor_data(primitive["attributes"]["TEXCOORD_0"])
+            data = gltf.get_accessor_data(
+                primitive["attributes"]["TEXCOORD_0"])
             uv_buffer = upload_to_gpu(
                 data,
                 stride=0,  # 4 * 3,
@@ -133,16 +136,18 @@ for primitive in gltf.get_primitives(found_node["mesh"]):
     pose_data = [None] * len(gltf.get_joints(0))
     for joint_id, node_id in enumerate(gltf.get_joints(0)):
         parent_id = gltf.get_node_parent(node_id)
-        
+
         try:
             parent_matrix = pose_data[gltf.get_joint_from_node(0, parent_id)]
 
-            print(joint_id, "parent", parent_id, gltf.get_joint_from_node(0, parent_id))
+            print(joint_id, "parent", parent_id,
+                  gltf.get_joint_from_node(0, parent_id))
         except:
             print("not found for joint", joint_id)
             parent_matrix = Matrix44.identity(dtype=numpy.float32)
 
-        sampler_id = gltf.get_animation_sampler_by_node_and_path(0, node_id, "rotation")
+        sampler_id = gltf.get_animation_sampler_by_node_and_path(
+            0, node_id, "rotation")
         frame = gltf.get_animation_sampler_frames(
             gltf.get_animation_sampler(0, sampler_id), "rotation"
         )[0]
@@ -303,13 +308,16 @@ float4 main(Output output) : SV_Target
     target_type=SHADER_TARGET_TYPE_PS,
 )
 
+print('VS', vs)
+print('PS', ps)
+
 
 glfw.init()
 # we do not want implicit OpenGL!
 glfw.window_hint(glfw.CLIENT_API, glfw.NO_API)
 
-target = Texture2D(1024, 1024, B8G8R8A8_UNORM)
-depth = Texture2D(1024, 1024, D24_UNORM_S8_UINT)
+target = Texture2D(768, 768, B8G8R8A8_UNORM)
+depth = Texture2D(768, 768, D32_FLOAT)
 
 rasterizer = Rasterizer(
     vs,
@@ -334,7 +342,8 @@ rasterizer = Rasterizer(
 
 print("done", rasterizer)
 
-window = glfw.create_window(target.width, target.height, "Rasterizer", None, None)
+window = glfw.create_window(
+    target.width, target.height, "Rasterizer", None, None)
 
 if platform.system() == "Windows":
     swapchain = compushady.Swapchain(
@@ -370,7 +379,7 @@ void main(int3 tid : SV_DispatchThreadID)
     ),
     uav=[target],
 )
-
+print('loop')
 rot = numpy.radians(90)
 while not glfw.window_should_close(window):
     glfw.poll_events()
@@ -384,7 +393,6 @@ while not glfw.window_should_close(window):
 
     transform.upload(world.tobytes() + perspective.tobytes())
     rasterizer.draw(index_count)
-    # rasterizer.draw_indexed(index_buffer, index_count)
     swapchain.present(target)
 
 swapchain = None  # this ensures the swapchain is destroyed before the window

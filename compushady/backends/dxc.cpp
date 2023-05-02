@@ -194,7 +194,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 		if (!PyErr_Occurred())
 		{
-			dxc_generate_exception(hr, "Unable to compile HLSl shader");
+			dxc_generate_exception(hr, "Unable to compile HLSL shader");
 		}
 
 		blob_source->Release();
@@ -357,6 +357,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			}
 
 			spirv_cross::CompilerMSL::Options options;
+			options.set_msl_version(2, 2);
 			msl.set_msl_options(options);
 			std::string msl_code = msl.compile();
 			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
