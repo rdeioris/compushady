@@ -66,10 +66,12 @@ typedef struct metal_Compute
     metal_Device* py_device;
     id<MTLComputePipelineState> compute_pipeline_state;
     id<MTLRenderPipelineState> render_pipeline_state;
+    PyObject* py_rtv_list;
     PyObject* py_cbv_list;
     PyObject* py_srv_list;
     PyObject* py_uav_list;
     PyObject* py_samplers_list;
+    std::vector<metal_Resource*> rtv;
     std::vector<metal_Resource*> cbv;
     std::vector<metal_Resource*> srv;
     std::vector<metal_Resource*> uav;
@@ -277,6 +279,7 @@ static void metal_Compute_dealloc(metal_Compute* self)
 
     Py_XDECREF(self->py_device);
 
+    Py_XDECREF(self->py_rtv_list);
     Py_XDECREF(self->py_cbv_list);
     Py_XDECREF(self->py_srv_list);
     Py_XDECREF(self->py_uav_list);
@@ -287,6 +290,7 @@ static void metal_Compute_dealloc(metal_Compute* self)
     Py_XDECREF(self->py_mtl_vertex_function);
     Py_XDECREF(self->py_mtl_pixel_function);
 
+    self->rtv = std::vector<metal_Resource*>();
     self->cbv = std::vector<metal_Resource*>();
     self->srv = std::vector<metal_Resource*>();
     self->uav = std::vector<metal_Resource*>();
@@ -466,7 +470,12 @@ static PyObject* metal_Compute_draw(metal_Compute* self, PyObject* args)
 
     id<MTLCommandBuffer> render_command_buffer = [self->py_device->command_queue commandBuffer];
 
-    MTLRenderPassDescriptor* render_pass_descriptor = [MTLRenderPassDescriptor renderPassDescriptor];
+    MTLRenderPassDescriptor* render_pass_descriptor =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+    render_pass_descriptor.colorAttachments[0].texture = self->rtv[0]->texture;
+    render_pass_descriptor.colorAttachments[0].clearColor = MTLClearColorMake(0, 0, 0, 1);
+    render_pass_descriptor.colorAttachments[0].storeAction = MTLStoreActionStore;
+    render_pass_descriptor.colorAttachments[0].loadAction = MTLLoadActionClear;
     id<MTLRenderCommandEncoder> render_command_encoder =
         [render_command_buffer renderCommandEncoderWithDescriptor:render_pass_descriptor];
 
@@ -483,11 +492,18 @@ static PyObject* metal_Compute_draw(metal_Compute* self, PyObject* args)
         metal_Resource* py_resource = self->cbv[i];
         if (py_resource->texture)
         {
-            [render_command_encoder setVertexTexture:py_resource->texture atIndex:texture_index++];
+            [render_command_encoder setVertexTexture:py_resource->texture atIndex:texture_index];
+            [render_command_encoder setFragmentTexture:py_resource->texture
+                                               atIndex:texture_index++];
         }
         else
         {
-            [render_command_encoder setVertexBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+            [render_command_encoder setVertexBuffer:py_resource->buffer
+                                             offset:0
+                                            atIndex:buffer_index];
+            [render_command_encoder setFragmentBuffer:py_resource->buffer
+                                               offset:0
+                                              atIndex:buffer_index++];
         }
     }
 
@@ -497,12 +513,17 @@ static PyObject* metal_Compute_draw(metal_Compute* self, PyObject* args)
         if (py_resource->texture)
         {
             [render_command_encoder setVertexTexture:py_resource->texture atIndex:texture_index];
-            [render_command_encoder setFragmentTexture:py_resource->texture atIndex:texture_index++];
+            [render_command_encoder setFragmentTexture:py_resource->texture
+                                               atIndex:texture_index++];
         }
         else
         {
-            [render_command_encoder setVertexBuffer:py_resource->buffer offset:0 atIndex:buffer_index];
-            [render_command_encoder setFragmentBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+            [render_command_encoder setVertexBuffer:py_resource->buffer
+                                             offset:0
+                                            atIndex:buffer_index];
+            [render_command_encoder setFragmentBuffer:py_resource->buffer
+                                               offset:0
+                                              atIndex:buffer_index++];
         }
     }
 
@@ -511,11 +532,18 @@ static PyObject* metal_Compute_draw(metal_Compute* self, PyObject* args)
         metal_Resource* py_resource = self->uav[i];
         if (py_resource->texture)
         {
-            [render_command_encoder setVertexTexture:py_resource->texture atIndex:texture_index++];
+            [render_command_encoder setVertexTexture:py_resource->texture atIndex:texture_index];
+            [render_command_encoder setFragmentTexture:py_resource->texture
+                                               atIndex:texture_index++];
         }
         else
         {
-            [render_command_encoder setVertexBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+            [render_command_encoder setVertexBuffer:py_resource->buffer
+                                             offset:0
+                                            atIndex:buffer_index];
+            [render_command_encoder setFragmentBuffer:py_resource->buffer
+                                               offset:0
+                                              atIndex:buffer_index++];
         }
     }
 
@@ -523,20 +551,22 @@ static PyObject* metal_Compute_draw(metal_Compute* self, PyObject* args)
     {
         metal_Sampler* py_sampler = self->samplers[i];
         [render_command_encoder setVertexSamplerState:py_sampler->sampler atIndex:sampler_index];
-        [render_command_encoder setFragmentSamplerState:py_sampler->sampler atIndex:sampler_index++];
+        [render_command_encoder setFragmentSamplerState:py_sampler->sampler
+                                                atIndex:sampler_index++];
     }
 
     MTLViewport viewport = {};
-    viewport.width = 1024;
-    viewport.height = 1024;
+    viewport.width = 768;
+    viewport.height = 768;
     viewport.znear = 0;
     viewport.zfar = 1;
     [render_command_encoder setViewport:viewport];
 
-    [render_command_encoder drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
-                                           vertexCount:number_of_vertices
-                                         instanceCount:number_of_instances
-                                          baseInstance:0];
+    [render_command_encoder drawPrimitives:MTLPrimitiveTypeTriangle
+                               vertexStart:0
+                               vertexCount:number_of_vertices
+                             instanceCount:number_of_instances
+                              baseInstance:0];
 
     [render_command_encoder endEncoding];
 
@@ -961,6 +991,7 @@ static PyObject* metal_Device_create_rasterizer(metal_Device* self, PyObject* ar
     py_compute->py_device = py_device;
     Py_INCREF(py_compute->py_device);
 
+    py_compute->rtv = std::vector<metal_Resource*>();
     py_compute->cbv = std::vector<metal_Resource*>();
     py_compute->srv = std::vector<metal_Resource*>();
     py_compute->uav = std::vector<metal_Resource*>();
@@ -971,7 +1002,8 @@ static PyObject* metal_Device_create_rasterizer(metal_Device* self, PyObject* ar
     Py_INCREF(py_compute->py_mtl_vertex_function);
     Py_INCREF(py_compute->py_mtl_pixel_function);
 
-    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv)
+    if (!compushady_check_descriptors(&metal_Resource_Type, py_rtv, py_compute->rtv)
+        || !compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv)
         || !compushady_check_descriptors(&metal_Resource_Type, py_srv, py_compute->srv)
         || !compushady_check_descriptors(&metal_Resource_Type, py_uav, py_compute->uav)
         || !compushady_check_descriptors(&metal_Sampler_Type, py_samplers, py_compute->samplers))
@@ -980,6 +1012,7 @@ static PyObject* metal_Device_create_rasterizer(metal_Device* self, PyObject* ar
         return NULL;
     }
 
+    py_compute->py_rtv_list = PyList_New(0);
     py_compute->py_cbv_list = PyList_New(0);
     py_compute->py_srv_list = PyList_New(0);
     py_compute->py_uav_list = PyList_New(0);
@@ -989,7 +1022,7 @@ static PyObject* metal_Device_create_rasterizer(metal_Device* self, PyObject* ar
     pipeline_descriptor.vertexFunction = mtl_vertex_function->function;
     pipeline_descriptor.fragmentFunction = mtl_pixel_function->function;
     pipeline_descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    pipeline_descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+    //pipeline_descriptor.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 
     NSError* error = nil;
 

@@ -144,6 +144,8 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"-fvk-s-shift");
 		arguments.push_back(L"3072");
 		arguments.push_back(L"0");
+		arguments.push_back(L"-fvk-use-dx-layout");
+		arguments.push_back(L"-fvk-use-scalar-layout");
 	}
 
 	LPCWSTR target_name;
@@ -360,6 +362,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			options.set_msl_version(2, 2);
 			msl.set_msl_options(options);
 			std::string msl_code = msl.compile();
+			printf("%.*s\n", msl_code.length(), msl_code.data());
 			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
 		}
 		catch (const std::exception& e)
