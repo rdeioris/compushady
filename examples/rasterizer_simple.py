@@ -223,7 +223,7 @@ struct Transform
 
 ConstantBuffer<Transform> transform: register(b0);
 Buffer<uint> indices : register(t0);
-Buffer<float3> vertices : register(t1);
+StructuredBuffer<float3> vertices : register(t1);
 Buffer<float2> uvs : register(t2);
 RWStructuredBuffer<uint> output_buffer : register(u0);
 
