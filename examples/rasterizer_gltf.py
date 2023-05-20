@@ -10,7 +10,6 @@ from utils import vector3
 import numpy
 import threading
 import struct
-import os
 
 compushady.config.set_debug(True)
 
@@ -61,7 +60,7 @@ RWTexture2D<float> depth : register(u1);
 [numthreads(8,8,1)]
 void main(int3 tid : SV_DispatchThreadID)
 {
-    target[tid.xy] = float4(0, 0, 0, 1);
+    target[tid.xy] = float4(0, 0, 0, 0);
     depth[tid.xy] = 0;
 }
 """), uav=[target, depth])
@@ -173,12 +172,8 @@ elif platform.system() == 'Darwin':
     ca_metal_layer = create_metal_layer(glfw.get_cocoa_window(window), compushady.formats.B8G8R8A8_UNORM)
     swapchain = compushady.Swapchain(ca_metal_layer, compushady.formats.B8G8R8A8_UNORM, 3)
 else:
-    if os.environ.get('XDG_SESSION_TYPE') == 'wayland':
-        swapchain = compushady.Swapchain((glfw.get_wayland_display(), glfw.get_wayland_window(
-            window)), compushady.formats.B8G8R8A8_UNORM, 3, None, target.width, target.height)
-    else:
-        swapchain = compushady.Swapchain((glfw.get_x11_display(), glfw.get_x11_window(
-            window)), compushady.formats.B8G8R8A8_UNORM, 3)
+    swapchain = compushady.Swapchain((glfw.get_x11_display(), glfw.get_x11_window(
+        window)), compushady.formats.B8G8R8A8_UNORM, 3)
 
 
 running = True

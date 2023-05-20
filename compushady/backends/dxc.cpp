@@ -30,17 +30,12 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	Py_buffer view;
 	PyObject* py_entry_point;
 	int shader_binary_type;
-	int target_type;
-	if (!PyArg_ParseTuple(args, "s*Uii", &view, &py_entry_point, &shader_binary_type, &target_type))
+	if (!PyArg_ParseTuple(args, "s*Ui", &view, &py_entry_point, &shader_binary_type))
 		return NULL;
 
 #ifdef _WIN32
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_DXBC)
 	{
-		if (target_type != COMPUSHADY_SHADER_TARGET_TYPE_CS)
-		{
-			return PyErr_Format(PyExc_Exception, "only compute shaders are supported in DXBC mode");
-		}
 		ID3DBlob* blob = NULL;
 		ID3D10Blob* error_messages = NULL;
 		const char* entry_point = PyUnicode_AsUTF8(py_entry_point);
@@ -141,40 +136,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"-fvk-u-shift");
 		arguments.push_back(L"2048");
 		arguments.push_back(L"0");
-		arguments.push_back(L"-fvk-s-shift");
-		arguments.push_back(L"3072");
-		arguments.push_back(L"0");
-		arguments.push_back(L"-fvk-use-dx-layout");
-		arguments.push_back(L"-fvk-use-scalar-layout");
-	}
-
-	LPCWSTR target_name;
-	if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_CS)
-	{
-		target_name = L"cs_6_0";
-	}
-	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_LIB)
-	{
-		target_name = L"lib_6_6";
-	}
-	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_VS)
-	{
-		target_name = L"vs_6_0";
-	}
-	else if (target_type == COMPUSHADY_SHADER_TARGET_TYPE_PS)
-	{
-		target_name = L"ps_6_0";
-	}
-	else
-	{
-		blob_source->Release();
-		dxc_compiler->Release();
-		dxc_library->Release();
-		return PyErr_Format(PyExc_Exception, "Unsupported shader type");
 	}
 
 	IDxcOperationResult* result;
-	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target_name, arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
+	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);
@@ -196,7 +161,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 		if (!PyErr_Occurred())
 		{
-			dxc_generate_exception(hr, "Unable to compile HLSL shader");
+			dxc_generate_exception(hr, "Unable to compile HLSl shader");
 		}
 
 		blob_source->Release();
@@ -253,8 +218,6 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			std::map<uint32_t, spv::StorageClass> uav;
 			std::vector<uint32_t> uav_keys;
 
-			std::vector<uint32_t> samplers_keys;
-
 			auto track_bindings = [&](spirv_cross::Resource& resource)
 			{
 				const uint32_t binding = msl.get_decoration(resource.id, spv::Decoration::DecorationBinding);
@@ -269,14 +232,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 					srv[binding] = storage_class;
 					srv_keys.push_back(binding);
 				}
-				else if (binding < 3072)
+				else
 				{
 					uav[binding] = storage_class;
 					uav_keys.push_back(binding);
-				}
-				else
-				{
-					samplers_keys.push_back(binding);
 				}
 			};
 
@@ -304,11 +263,9 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			std::sort(cbv_keys.begin(), cbv_keys.end());
 			std::sort(srv_keys.begin(), srv_keys.end());
 			std::sort(uav_keys.begin(), uav_keys.end());
-			std::sort(samplers_keys.begin(), samplers_keys.end());
 
 			uint32_t buffer_index = 0;
 			uint32_t texture_index = 0;
-			uint32_t sampler_index = 0;
 
 			for (const uint32_t binding : cbv_keys)
 			{
@@ -317,7 +274,6 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = cbv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = cbv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
-				msl_binding.msl_sampler = 0;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
@@ -329,7 +285,6 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = srv[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = srv[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
-				msl_binding.msl_sampler = 0;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
@@ -341,28 +296,13 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 				msl_binding.binding = binding;
 				msl_binding.msl_texture = uav[binding] != spv::StorageClass::StorageClassUniform ? texture_index++ : 0;
 				msl_binding.msl_buffer = uav[binding] == spv::StorageClass::StorageClassUniform ? buffer_index++ : 0;
-				msl_binding.msl_sampler = 0;
-				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
-				msl.add_msl_resource_binding(msl_binding);
-			}
-
-			for (const uint32_t binding : samplers_keys)
-			{
-				spirv_cross::MSLResourceBinding msl_binding;
-				msl_binding.count = 1;
-				msl_binding.binding = binding;
-				msl_binding.msl_texture = 0;
-				msl_binding.msl_buffer = 0;
-				msl_binding.msl_sampler = sampler_index++;
 				msl_binding.stage = spv::ExecutionModel::ExecutionModelGLCompute;
 				msl.add_msl_resource_binding(msl_binding);
 			}
 
 			spirv_cross::CompilerMSL::Options options;
-			options.set_msl_version(2, 2);
 			msl.set_msl_options(options);
 			std::string msl_code = msl.compile();
-			printf("%.*s\n", msl_code.length(), msl_code.data());
 			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
 		}
 		catch (const std::exception& e)

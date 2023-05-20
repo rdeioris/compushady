@@ -1,3 +1,0 @@
-[submodule "compushady/backends/spirv_cross"]
-	path = compushady/backends/spirv_cross
-	url = https://github.com/KhronosGroup/SPIRV-Cross
