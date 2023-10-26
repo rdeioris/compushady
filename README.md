@@ -3,7 +3,7 @@ Python module for easily running Compute Shaders
 
 ![compushadyMandlebrot](compushady_mandlebrot.gif?raw=true "compushady Mandlebrot")
 
-Join the Discord server for support: https://discord.gg/EFvWaaxdR4
+Join the Discord server for support: https://discord.gg/2WvdpkYXHW
 
 Currently d3d12 (Windows), vulkan (Linux, Mac and Windows), metal (Mac), and d3d11 (Windows) are supported.
 
