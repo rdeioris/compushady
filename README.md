@@ -57,7 +57,7 @@ To wrap up: if you want to upload data to the GPU, you first need to map a memor
 from compushady import Buffer, Texture2D, HEAP_UPLOAD
 from compushady.formats import R8G8B8A8_UINT
 
-# creates a 8x8 texture in GPU with the classig RGBA 8 bit format
+# creates a 8x8 texture in GPU with the classic RGBA 8 bit format
 texture = Texture2D(8, 8, R8G8B8A8_UINT)  
 # creates a staging buffer with the right size and in memory optimized for uploading data
 staging_buffer = Buffer(texture.size, HEAP_UPLOAD)
@@ -75,7 +75,7 @@ Now that you have your data in GPU memory, you can manipulate them using a compu
 from compushady import HEAP_READBACK, Buffer, Texture2D, HEAP_UPLOAD
 from compushady.formats import R8G8B8A8_UINT
 
-# creates a 8x8 texture in GPU with the classig RGBA 8 bit format
+# creates a 8x8 texture in GPU with the classic RGBA 8 bit format
 texture = Texture2D(8, 8, R8G8B8A8_UINT)  
 # creates a staging buffer with the right size and in memory optimized for uploading data
 staging_buffer = Buffer(texture.size, HEAP_UPLOAD)
@@ -106,7 +106,7 @@ from compushady import HEAP_READBACK, Buffer, Texture2D, HEAP_UPLOAD, Compute
 from compushady.formats import R8G8B8A8_UINT
 from compushady.shaders import hlsl
 
-# creates a 8x8 texture in GPU with the classig RGBA 8 bit format
+# creates a 8x8 texture in GPU with the classic RGBA 8 bit format
 texture = Texture2D(8, 8, R8G8B8A8_UINT)
 # creates a staging buffer with the right size and in memory optimized for uploading data
 staging_buffer = Buffer(texture.size, HEAP_UPLOAD)
@@ -189,7 +189,7 @@ readback_buffer = compushady.Buffer(256, compushady.HEAP_READBACK)
 
 Buffers created with HEAP_UPLOAD exposes the ```upload(data, offset=0)``` and ```upload2d(data, row_pitch, height, bytes_per_pixel)``` methods
 
-Bufers created with HEAP_READBACK exposes the ```readback(size=0, offset=0)```, ```readback2d(row_pitch, height, bytes_per_pixel)``` and ```readback_to_buffer(buffer, offset=0)``` methods
+Buffers created with HEAP_READBACK exposes the ```readback(size=0, offset=0)```, ```readback2d(row_pitch, height, bytes_per_pixel)``` and ```readback_to_buffer(buffer, offset=0)``` methods
 
 Buffers expose the ```size``` property returning the size in bytes.
 
@@ -277,7 +277,7 @@ To build a Compute object (the one running the compute shader), you need (obviou
 
 Note: while on DirectX based backends you need a DXIL/DXCB shader blob, on Vulkan any shader compiler able to generate SPIR-V blobs will be good for compushady (you can even precompile your shaders and store the SPIR-V blobs on files that you can load in compushady)
 
-compushady uses the DirectX12 naming conventions: ```CBV``` (Constant Buffer View) for constant buffers (generally little ammount of data that do not change during the compute shader execution), ```SRV``` (Shader Resource View) for buffers and textures you need to read in the shader, and ```UAV``` (Unordered Access View) for buffers and textures that need to be written by the shader.
+compushady uses the DirectX12 naming conventions: ```CBV``` (Constant Buffer View) for constant buffers (generally little amount of data that do not change during the compute shader execution), ```SRV``` (Shader Resource View) for buffers and textures you need to read in the shader, and ```UAV``` (Unordered Access View) for buffers and textures that need to be written by the shader.
 
 This is a quick Compute object implementing a copy from a texture (the SRV, filled with random data uploaded in a buffer) to another one (the UAV) doubling pixel values:
 
@@ -413,7 +413,7 @@ In HLSL you assign resources to registers/slot using 3 main concepts: cbv, srv, 
 When converting HLSL to SPIR-V an offset is added to SRVs (1024) and UAVs (2048), so b0 will be mapped to SPIR-V binding 0, b1 to 1, t0 to 1024, t2 to 1026 and u0 to 2048. Remember this when using SPIR-V directly.
 
 When converting HLSL to MSL the code is first translated to SPIR-V and finally remapped to MSL. Here the mapping is again different to overcome metal approach to resource binding. In metal we have only two (from the compushady point of view) kind of resources: buffers and textures. When doing the conversion the SPIR-V bindings are just trashed and instead a sequential model is applied: from the lowest binding id just assign the next index based on the type of SPIR-V resource (Uniform is a buffer, ConstantUniform is a texture).
-Example: 2048 uniform will be buffer(1), 2049 contant uniform will be texture(0), 1025 uniform will be buffer(0). Remember the numerical order is always relevant!
+Example: 2048 uniform will be buffer(1), 2049 constant uniform will be texture(0), 1025 uniform will be buffer(0). Remember the numerical order is always relevant!
 
 ## Known Issues
 
