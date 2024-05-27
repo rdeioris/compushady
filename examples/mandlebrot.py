@@ -14,7 +14,7 @@ print('Using device', compushady.get_current_device().name,
 
 target = compushady.Texture2D(768, 768, compushady.formats.B8G8R8A8_UNORM)
 
-config = compushady.Buffer(16, compushady.HEAP_UPLOAD) # use 16 to make d3d11 happy...
+config = compushady.Buffer(16, compushady.HEAP_UPLOAD) 
 
 config_fast = compushady.Buffer(config.size)
 
@@ -51,7 +51,6 @@ void main(int3 tid : SV_DispatchThreadID)
     target[tid.xy] = float4(m, 0, multiplier, 1);
 }
 """)
-
 
 compute = compushady.Compute(shader, cbv=[config_fast], uav=[target])
 

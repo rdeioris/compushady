@@ -53,13 +53,6 @@ if is_windows:
                                        'compushady/backends/dxgi.cpp',
                                        'compushady/backends/common.cpp', ]
                               ))
-    backends.append(Extension('compushady.backends.d3d11',
-                              libraries=['dxgi', 'd3d11'],
-                              depends=['compushady/backends/compushady.h'],
-                              sources=['compushady/backends/d3d11.cpp',
-                                       'compushady/backends/dxgi.cpp',
-                                       'compushady/backends/common.cpp']
-                              ))
 
 if is_mac:
     backends.append(Extension('compushady.backends.metal',

@@ -1177,6 +1177,7 @@ static PyObject* vulkan_Device_create_texture1d(vulkan_Device * self, PyObject *
 	return (PyObject*)py_resource;
 }
 
+<<<<<<< HEAD
 static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * args, PyObject * kwds)
 {
 	const char* kwlist[] = { "shader", "cbv", "srv", "uav", NULL };
@@ -1184,11 +1185,78 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 	PyObject* py_cbv = NULL;
 	PyObject* py_srv = NULL;
 	PyObject* py_uav = NULL;
+=======
+#define COMPUSHADY_VULKAN_SAMPLER_ADDRESS_MODE(ret, var, field) if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_WRAP)\
+{\
+	ret = VK_SAMPLER_ADDRESS_MODE_REPEAT;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_MIRROR)\
+{\
+	ret = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;\
+}\
+else if (var == COMPUSHADY_SAMPLER_ADDRESS_MODE_CLAMP)\
+{\
+	ret = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;\
+}\
+else\
+{\
+	return PyErr_Format(Compushady_SamplerError, "unsupported address mode for " field);\
+}
+
+static PyObject* vulkan_Device_create_sampler(vulkan_Device* self, PyObject* args)
+{
+    int address_mode_u;
+	int address_mode_v;
+	int address_mode_w;
+	int filter_min;
+	int filter_mag;
+	if (!PyArg_ParseTuple(args, "iiiii", &address_mode_u, &address_mode_v, &address_mode_w, &filter_min, &filter_mag))
+		return NULL;
+
+    VkSamplerCreateInfo sampler_create_info = {};
+    COMPUSHADY_VULKAN_SAMPLER_ADDRESS_MODE(sampler_create_info.addressModeU, address_mode_u, "U");
+    COMPUSHADY_VULKAN_SAMPLER_ADDRESS_MODE(sampler_create_info.addressModeV, address_mode_v, "V");
+    COMPUSHADY_VULKAN_SAMPLER_ADDRESS_MODE(sampler_create_info.addressModeW, address_mode_w, "W");
+    if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT && filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		sampler_create_info.minFilter = VK_FILTER_NEAREST;
+        sampler_create_info.magFilter = VK_FILTER_NEAREST;
+        sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
+	{
+		sampler_create_info.minFilter = VK_FILTER_LINEAR;
+        sampler_create_info.magFilter = VK_FILTER_NEAREST;
+        sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		sampler_create_info.minFilter = VK_FILTER_NEAREST;
+        sampler_create_info.magFilter = VK_FILTER_LINEAR;
+        sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	}
+	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
+	{
+		sampler_create_info.minFilter = VK_FILTER_LINEAR;
+        sampler_create_info.magFilter = VK_FILTER_LINEAR;
+        sampler_create_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	}
+	else
+	{
+		return PyErr_Format(Compushady_SamplerError, "unsupported filter");
+	}
+    sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+
+    vulkan_Device* py_device = vulkan_Device_get_device(self);
+    if (!py_device)
+        return NULL;
+>>>>>>> samplers2
 
 	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOO", (char**)kwlist,
 		&view, &py_cbv, &py_srv, &py_uav))
 		return NULL;
 
+<<<<<<< HEAD
 	vulkan_Device* py_device = vulkan_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -1201,6 +1269,15 @@ static PyObject* vulkan_Device_create_compute(vulkan_Device * self, PyObject * a
 		PyBuffer_Release(&view);
 		return NULL;
 	}
+=======
+    VkResult result = vkCreateSampler(
+        py_sampler->py_device->device, &sampler_create_info, NULL, &py_sampler->sampler);
+    if (result != VK_SUCCESS)
+    {
+        Py_DECREF(py_sampler);
+        return PyErr_Format(PyExc_MemoryError, "unable to create vulkan Sampler");
+    }
+>>>>>>> samplers2
 
 	std::vector<VkDescriptorSetLayoutBinding> layout_bindings;
 	std::vector<VkDescriptorPoolSize> pool_sizes;
