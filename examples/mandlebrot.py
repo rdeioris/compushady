@@ -52,7 +52,6 @@ void main(int3 tid : SV_DispatchThreadID)
 }
 """)
 
-
 compute = compushady.Compute(shader, cbv=[config_fast], uav=[target])
 
 glfw.init()
