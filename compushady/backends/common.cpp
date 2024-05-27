@@ -4,12 +4,14 @@ PyObject* Compushady_BufferError = NULL;
 PyObject* Compushady_Texture1DError = NULL;
 PyObject* Compushady_Texture2DError = NULL;
 PyObject* Compushady_Texture3DError = NULL;
+PyObject* Compushady_SamplerError = NULL;
 
 PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
 	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
 	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
-	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods)
+	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
+	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods)
 {
 	PyObject* py_compushady = PyImport_ImportModule("compushady");
 	if (!py_compushady)
@@ -50,6 +52,13 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	{
 		Py_DECREF(py_compushady);
 		return PyErr_Format(PyExc_ImportError, "Unable to find compushady.Texture3DException");
+	}
+
+	Compushady_SamplerError = PyDict_GetItemString(py_compushady_dict, "SamplerException");
+	if (!Compushady_SamplerError)
+	{
+		Py_DECREF(py_compushady);
+		return PyErr_Format(PyExc_ImportError, "Unable to find compushady.SamplerException");
 	}
 
 
@@ -108,6 +117,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 
+	compute_type->tp_members = compute_members;
 	compute_type->tp_methods = compute_methods;
 	if (PyType_Ready(compute_type) < 0)
 	{
@@ -128,8 +138,32 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 
+	sampler_type->tp_members = sampler_members;
+	sampler_type->tp_methods = sampler_methods;
+	if (PyType_Ready(sampler_type) < 0)
+	{
+		Py_DECREF(compute_type);
+		Py_DECREF(swapchain_type);
+		Py_DECREF(resource_type);
+		Py_DECREF(device_type);
+		Py_DECREF(m);
+		return NULL;
+	}
+	Py_INCREF(sampler_type);
+	if (PyModule_AddObject(m, "Sampler", (PyObject*)sampler_type) < 0)
+	{
+		Py_DECREF(sampler_type);
+		Py_DECREF(compute_type);
+		Py_DECREF(swapchain_type);
+		Py_DECREF(resource_type);
+		Py_DECREF(device_type);
+		Py_DECREF(m);
+		return NULL;
+	}
+
 	if (PyModule_AddObject(m, "name", PyUnicode_FromString(py_module_def->m_name)) < 0)
 	{
+		Py_DECREF(sampler_type);
 		Py_DECREF(compute_type);
 		Py_DECREF(swapchain_type);
 		Py_DECREF(resource_type);
