@@ -21,7 +21,6 @@ speed = 2 # the overall game speed
 
 ball_direction = [1, 1] # initial ball direction
 
-# to support d3d11 we are going to use two buffers here
 quads_staging_buffer = compushady.Buffer(4 * 4 * 3, compushady.HEAP_UPLOAD)
 quads_buffer = compushady.Buffer(
     quads_staging_buffer.size, format=compushady.formats.R32G32B32A32_SINT)

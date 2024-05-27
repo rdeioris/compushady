@@ -15,7 +15,6 @@ target = compushady.Texture2D(256, 256, compushady.formats.R8G8B8A8_UNORM)
 
 buffer = compushady.Buffer(target.size, compushady.HEAP_READBACK)
 
-# use 16 to make d3d11 happy...
 config = compushady.Buffer(16, compushady.HEAP_UPLOAD)
 
 config_fast = compushady.Buffer(config.size)
