@@ -6,7 +6,6 @@
 #define NOMINMAX
 #endif
 #include <comdef.h>
-#include <d3dcompiler.h>
 #endif
 
 #include "dxcapi.h"
@@ -30,41 +29,9 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	Py_buffer view;
 	PyObject* py_entry_point;
 	int shader_binary_type;
-	if (!PyArg_ParseTuple(args, "s*Ui", &view, &py_entry_point, &shader_binary_type))
+	PyObject* py_target;
+	if (!PyArg_ParseTuple(args, "s*UiU", &view, &py_entry_point, &shader_binary_type, &py_target))
 		return NULL;
-
-#ifdef _WIN32
-	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_DXBC)
-	{
-		ID3DBlob* blob = NULL;
-		ID3D10Blob* error_messages = NULL;
-		const char* entry_point = PyUnicode_AsUTF8(py_entry_point);
-		HRESULT hr = D3DCompile(view.buf, view.len, NULL, NULL, NULL, entry_point, "cs_5_0", 0, 0, &blob, &error_messages);
-		if (hr != S_OK)
-		{
-			if (blob)
-				blob->Release();
-			if (error_messages)
-			{
-				PyObject* py_unicode_error = PyUnicode_FromStringAndSize((const char*)error_messages->GetBufferPointer(), error_messages->GetBufferSize());
-				PyObject* py_exc = PyErr_Format(PyExc_Exception, "%U", py_unicode_error);
-				Py_DECREF(py_unicode_error);
-
-				if (error_messages)
-					error_messages->Release();
-				return py_exc;
-			}
-			return dxc_generate_exception(hr, "unable to compile shader");
-		}
-		PyObject* py_compiled_blob = PyBytes_FromStringAndSize((const char*)blob->GetBufferPointer(), blob->GetBufferSize());
-		blob->Release();
-		if (error_messages)
-		{
-			error_messages->Release();
-		}
-		return py_compiled_blob;
-	}
-#endif
 
 	static DxcCreateInstanceProc dxcompiler_lib_create_instance_proc = NULL;
 
@@ -126,6 +93,16 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return NULL;
 	}
 
+	wchar_t* target = PyUnicode_AsWideCharString(py_target, NULL);
+	if (!target)
+	{
+		PyMem_Free(entry_point);
+		blob_source->Release();
+		dxc_compiler->Release();
+		dxc_library->Release();
+		return NULL;
+	}
+
 	std::vector<const wchar_t*> arguments;
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_SPIRV || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_GLSL)
 	{
@@ -142,7 +119,11 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	}
 
 	IDxcOperationResult* result;
-	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, L"cs_6_0", arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
+	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target, arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
+
+	PyMem_Free(target);
+	PyMem_Free(entry_point);
+
 	if (hr == S_OK)
 	{
 		result->GetStatus(&hr);
