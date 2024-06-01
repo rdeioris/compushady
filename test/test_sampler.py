@@ -43,9 +43,9 @@ class SamplerTests(unittest.TestCase):
 
         shader = hlsl.compile(
             """
-SamplerState sampler0;
-Texture2D<float4> source;
-RWTexture2D<float4> target;
+SamplerState sampler0 : register(s0);
+Texture2D<float4> source : register(t0);
+RWTexture2D<float4> target : register(u0);
 
 [numthreads(1,1,1)]
 void main(int3 tid : SV_DispatchThreadID)
@@ -89,9 +89,9 @@ void main(int3 tid : SV_DispatchThreadID)
 
         shader = hlsl.compile(
             """
-SamplerState sampler0;
-Texture2D<float4> source;
-RWTexture2D<float4> target;
+SamplerState sampler0 : register(s0);
+Texture2D<float4> source : register(t0);
+RWTexture2D<float4> target : register(u0);
 
 [numthreads(1,1,1)]
 void main(int3 tid : SV_DispatchThreadID)
@@ -135,9 +135,9 @@ void main(int3 tid : SV_DispatchThreadID)
 
         shader = hlsl.compile(
             """
-SamplerState sampler0;
-Texture2D<float4> source;
-RWTexture2D<float4> target;
+SamplerState sampler0 : register(s0);
+Texture2D<float4> source : register(t0);
+RWTexture2D<float4> target : register(u0);
 
 [numthreads(1,1,1)]
 void main(int3 tid : SV_DispatchThreadID)

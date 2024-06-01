@@ -638,6 +638,9 @@ static PyObject *vulkan_instance_check()
         if (!strcmp(extension_prop.extensionName, VK_EXT_METAL_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+#ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+	    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
 #else
         if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
         {
@@ -678,6 +681,9 @@ static PyObject *vulkan_instance_check()
         instance_create_info.ppEnabledExtensionNames = extensions.data();
         instance_create_info.enabledLayerCount = (uint32_t)layers.size();
         instance_create_info.ppEnabledLayerNames = layers.data();
+#ifdef __APPLE__
+	instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 
         VkResult result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
         if (result != VK_SUCCESS)
@@ -2757,6 +2763,7 @@ static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     vkBeginCommandBuffer(self->py_device->command_buffer, &begin_info);
+
     vkCmdBindPipeline(
         self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, self->pipeline);
     vkCmdBindDescriptorSets(self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,

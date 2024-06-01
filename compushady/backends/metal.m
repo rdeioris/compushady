@@ -1395,6 +1395,39 @@ static PyObject* metal_Resource_readback(metal_Resource* self, PyObject* args)
     return py_bytes;
 }
 
+static PyObject *metal_Resource_readback2d(metal_Resource *self, PyObject *args)
+{
+        uint32_t pitch;
+        uint32_t width;
+        uint32_t height;
+        uint32_t bytes_per_pixel;
+        if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
+                return NULL;
+
+        if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
+        {
+                return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
+        }
+
+    	char* mapped_data = (char*)[self->buffer contents];
+
+        char *data2d = (char *)PyMem_Malloc(width * height * bytes_per_pixel);
+        if (!data2d)
+        {
+                return PyErr_Format(PyExc_MemoryError, "Unable to allocate memory for 2d data");
+        }
+
+        for (uint32_t y = 0; y < height; y++)
+        {
+        	memcpy(data2d + (width * bytes_per_pixel * y), mapped_data + (pitch * y), width * bytes_per_pixel);
+        }
+
+        PyObject *py_bytes = PyBytes_FromStringAndSize(data2d, width * height * bytes_per_pixel);
+
+        PyMem_Free(data2d);
+        return py_bytes;
+}
+
 static PyObject* metal_Resource_readback_to_buffer(metal_Resource* self, PyObject* args)
 {
     Py_buffer view;
@@ -1505,6 +1538,8 @@ static PyMethodDef metal_Resource_methods[] = {
         "Upload bytes to a GPU Resource with the given stride and a filler" },
     { "readback", (PyCFunction)metal_Resource_readback, METH_VARARGS,
         "Readback bytes from a GPU Resource" },
+    { "readback2d", (PyCFunction)metal_Resource_readback2d, METH_VARARGS,
+        "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
     { "readback_to_buffer", (PyCFunction)metal_Resource_readback_to_buffer, METH_VARARGS,
         "Readback into a buffer from a GPU Resource" },
     { "copy_to", (PyCFunction)metal_Resource_copy_to, METH_VARARGS,
