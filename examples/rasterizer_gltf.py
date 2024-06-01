@@ -119,7 +119,7 @@ void draw_triangle(uint index_a, uint index_b, uint index_c, uint2 p)
         return;
     }
 
-    float z = va.z * bc.x + vb.z * bc.y + vb.z * (1 - bc.x - bc.y);
+    float z = va.z * bc.x + vb.z * bc.y + vc.z * (1 - bc.x - bc.y);
 
     if (z > depth[p])
     {
@@ -194,7 +194,6 @@ def render_loop():
         swapchain.present(target, 0, 0)
         z -= 0.01
         y += 1
-
 
 t = threading.Thread(target=render_loop)
 t.start()
