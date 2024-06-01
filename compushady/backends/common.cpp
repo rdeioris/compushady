@@ -1,25 +1,27 @@
 #include "compushady.h"
 
-PyObject* Compushady_BufferError = NULL;
-PyObject* Compushady_Texture1DError = NULL;
-PyObject* Compushady_Texture2DError = NULL;
-PyObject* Compushady_Texture3DError = NULL;
-PyObject* Compushady_SamplerError = NULL;
+PyObject *Compushady_BufferError = NULL;
+PyObject *Compushady_Texture1DError = NULL;
+PyObject *Compushady_Texture2DError = NULL;
+PyObject *Compushady_Texture3DError = NULL;
+PyObject *Compushady_SamplerError = NULL;
+PyObject *Compushady_HeapError = NULL;
 
-PyObject* compushady_backend_init(PyModuleDef* py_module_def,
-	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
-	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
-	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
-	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
-	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods)
+PyObject *compushady_backend_init(PyModuleDef *py_module_def,
+								  PyTypeObject *device_type, PyMemberDef *device_members, PyMethodDef *device_methods,
+								  PyTypeObject *resource_type, PyMemberDef *resource_members, PyMethodDef *resource_methods,
+								  PyTypeObject *swapchain_type, PyMemberDef *swapchain_members, PyMethodDef *swapchain_methods,
+								  PyTypeObject *compute_type, PyMemberDef *compute_members, PyMethodDef *compute_methods,
+								  PyTypeObject *sampler_type, PyMemberDef *sampler_members, PyMethodDef *sampler_methods,
+								  PyTypeObject *heap_type, PyMemberDef *heap_members, PyMethodDef *heap_methods)
 {
-	PyObject* py_compushady = PyImport_ImportModule("compushady");
+	PyObject *py_compushady = PyImport_ImportModule("compushady");
 	if (!py_compushady)
 	{
 		return NULL;
 	}
 
-	PyObject* py_compushady_dict = PyModule_GetDict(py_compushady);
+	PyObject *py_compushady_dict = PyModule_GetDict(py_compushady);
 	if (!py_compushady_dict)
 	{
 		Py_DECREF(py_compushady);
@@ -61,8 +63,14 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return PyErr_Format(PyExc_ImportError, "Unable to find compushady.SamplerException");
 	}
 
+	Compushady_HeapError = PyDict_GetItemString(py_compushady_dict, "HeapException");
+	if (!Compushady_HeapError)
+	{
+		Py_DECREF(py_compushady);
+		return PyErr_Format(PyExc_ImportError, "Unable to find compushady.HeapException");
+	}
 
-	PyObject* m = PyModule_Create(py_module_def);
+	PyObject *m = PyModule_Create(py_module_def);
 	if (m == NULL)
 		return NULL;
 
@@ -74,7 +82,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 	Py_INCREF(device_type);
-	if (PyModule_AddObject(m, "Device", (PyObject*)device_type) < 0)
+	if (PyModule_AddObject(m, "Device", (PyObject *)device_type) < 0)
 	{
 		Py_DECREF(device_type);
 		Py_DECREF(m);
@@ -90,7 +98,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 	Py_INCREF(resource_type);
-	if (PyModule_AddObject(m, "Resource", (PyObject*)resource_type) < 0)
+	if (PyModule_AddObject(m, "Resource", (PyObject *)resource_type) < 0)
 	{
 		Py_DECREF(resource_type);
 		Py_DECREF(device_type);
@@ -108,7 +116,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 	Py_INCREF(swapchain_type);
-	if (PyModule_AddObject(m, "Swapchain", (PyObject*)swapchain_type) < 0)
+	if (PyModule_AddObject(m, "Swapchain", (PyObject *)swapchain_type) < 0)
 	{
 		Py_DECREF(swapchain_type);
 		Py_DECREF(resource_type);
@@ -128,7 +136,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 	Py_INCREF(compute_type);
-	if (PyModule_AddObject(m, "Compute", (PyObject*)compute_type) < 0)
+	if (PyModule_AddObject(m, "Compute", (PyObject *)compute_type) < 0)
 	{
 		Py_DECREF(compute_type);
 		Py_DECREF(swapchain_type);
@@ -150,8 +158,33 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 		return NULL;
 	}
 	Py_INCREF(sampler_type);
-	if (PyModule_AddObject(m, "Sampler", (PyObject*)sampler_type) < 0)
+	if (PyModule_AddObject(m, "Sampler", (PyObject *)sampler_type) < 0)
 	{
+		Py_DECREF(sampler_type);
+		Py_DECREF(compute_type);
+		Py_DECREF(swapchain_type);
+		Py_DECREF(resource_type);
+		Py_DECREF(device_type);
+		Py_DECREF(m);
+		return NULL;
+	}
+
+	heap_type->tp_members = heap_members;
+	heap_type->tp_methods = heap_methods;
+	if (PyType_Ready(heap_type) < 0)
+	{
+		Py_DECREF(sampler_type);
+		Py_DECREF(compute_type);
+		Py_DECREF(swapchain_type);
+		Py_DECREF(resource_type);
+		Py_DECREF(device_type);
+		Py_DECREF(m);
+		return NULL;
+	}
+	Py_INCREF(heap_type);
+	if (PyModule_AddObject(m, "Heap", (PyObject *)heap_type) < 0)
+	{
+		Py_DECREF(heap_type);
 		Py_DECREF(sampler_type);
 		Py_DECREF(compute_type);
 		Py_DECREF(swapchain_type);
@@ -163,6 +196,7 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 
 	if (PyModule_AddObject(m, "name", PyUnicode_FromString(py_module_def->m_name)) < 0)
 	{
+		Py_DECREF(heap_type);
 		Py_DECREF(sampler_type);
 		Py_DECREF(compute_type);
 		Py_DECREF(swapchain_type);

@@ -17,7 +17,7 @@ class DXCTests(unittest.TestCase):
         {
             output[tid.xy] = input[tid.z] * 2;
         }
-        """, 'main', SHADER_BINARY_TYPE_GLSL)
+        """, 'main', SHADER_BINARY_TYPE_GLSL, "cs_5_0")
         self.assertTrue(
             b'layout(binding = 1024) uniform samplerBuffer _input;' in glsl)
         self.assertTrue(
@@ -45,7 +45,7 @@ class DXCTests(unittest.TestCase):
             output2[tid.z].r = data.b;
             data3[1].b = 0;
         }
-        """, 'main', SHADER_BINARY_TYPE_MSL)
+        """, 'main', SHADER_BINARY_TYPE_MSL, "cs_5_0")
         self.assertTrue(b'_input [[texture(0)]]' in msl)
         self.assertTrue(b'input2 [[texture(1)]]' in msl)
         self.assertTrue(b'_output [[texture(2)]]' in msl)

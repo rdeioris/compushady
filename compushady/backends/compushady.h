@@ -72,6 +72,7 @@ extern PyObject* Compushady_Texture1DError;
 extern PyObject* Compushady_Texture2DError;
 extern PyObject* Compushady_Texture3DError;
 extern PyObject* Compushady_SamplerError;
+extern PyObject* Compushady_HeapError;
 
 
 PyObject* compushady_backend_init(PyModuleDef* py_module_def,
@@ -79,7 +80,8 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
 	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
 	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
-	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods
+	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods,
+	PyTypeObject* heap_type, PyMemberDef* heap_members, PyMethodDef* heap_methods
 );
 
 template<typename T, typename U>
