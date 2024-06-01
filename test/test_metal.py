@@ -12,7 +12,7 @@ class MetalTests(unittest.TestCase):
 
     def test_simple_fill32(self):
         u0 = Texture2D(2, 2, R32G32B32A32_FLOAT)
-        b0 = Buffer(64, HEAP_READBACK)
+        b0 = Buffer(u0.size, HEAP_READBACK)
         shader = msl.compile("""
 #include <metal_stdlib>
 #include <simd/simd.h>
