@@ -1300,7 +1300,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 
 	D3D12_VERSIONED_ROOT_SIGNATURE_DESC versioned_root_signature = {};
 	versioned_root_signature.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-	versioned_root_signature.Desc_1_1.NumParameters = 1 + (samplers.size() > 0) ? 1 : 0;
+	versioned_root_signature.Desc_1_1.NumParameters = 1 + ((samplers.size() > 0) ? 1 : 0);
 	versioned_root_signature.Desc_1_1.pParameters = root_parameters;
 
 	ID3DBlob *serialized_root_signature;
@@ -1601,7 +1601,7 @@ static PyObject *d3d12_Resource_readback2d(d3d12_Resource *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
 		return NULL;
 
-	if (pitch * height > self->size)
+	if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
 	{
 		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
 	}

@@ -84,6 +84,8 @@ PyObject* compushady_backend_init(PyModuleDef* py_module_def,
 	PyTypeObject* heap_type, PyMemberDef* heap_members, PyMethodDef* heap_methods
 );
 
+size_t compushady_get_size_by_pitch(const size_t pitch, const size_t width, const size_t height);
+
 template<typename T, typename U>
 bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav, PyTypeObject* py_sampler_type, PyObject* py_samplers, std::vector<U*>& samplers)
 {

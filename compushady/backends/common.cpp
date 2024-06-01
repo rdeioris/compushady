@@ -208,3 +208,12 @@ PyObject *compushady_backend_init(PyModuleDef *py_module_def,
 
 	return m;
 }
+
+size_t compushady_get_size_by_pitch(const size_t pitch, const size_t width, const size_t height)
+{
+	if (height > 1)
+	{
+		return (pitch * (height - 1)) + width;
+	}
+	return pitch;
+}

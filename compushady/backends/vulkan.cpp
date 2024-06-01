@@ -2428,7 +2428,7 @@ static PyObject *vulkan_Resource_readback2d(vulkan_Resource *self, PyObject *arg
     if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
         return NULL;
 
-    if (pitch * height > self->size)
+    if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
     {
         return PyErr_Format(PyExc_ValueError,
                             "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height,
