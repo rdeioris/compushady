@@ -454,9 +454,12 @@ Note that float16 support is not available (so formats like R16G16B16A16_FLOAT a
 
 The module will be built from sources (it will take a bunch of minutes) when doing a ```pip install compushady``` so ensure to have a c/c++ compiler and the python3 headers installed.
 
-## Accessing native GPU resources (advanced usage)
+## WIP
 
-TODO
+* Texture mips support
+* Support for inline raytracing
+* Support for mesh shaders
+* Add naga shaders compiler for GLSL and WGSL (https://crates.io/crates/naga)
 
 ## Multithreading
 
