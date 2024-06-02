@@ -682,7 +682,9 @@ static PyObject *vulkan_instance_check()
         instance_create_info.enabledLayerCount = (uint32_t)layers.size();
         instance_create_info.ppEnabledLayerNames = layers.data();
 #ifdef __APPLE__
+#ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
 	instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 #endif
 
         VkResult result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
