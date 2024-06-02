@@ -32,7 +32,7 @@ pip install compushady
 (the vulkan headers will be searched in /usr/local or by reading the VULKAN_SDK environment variable, otherwise only the metal backend will be built)
 
 `Note for Windows`:
-(the vulkan headers will be searched by reading the VULKAN_SDK environment variable, automatically set by the LunarG installer. If no Vulkan SDK is found only the d3d12 and d3d11 backends will be built)
+(the vulkan headers will be searched by reading the VULKAN_SDK environment variable, automatically set by the LunarG installer. If no Vulkan SDK is found only the d3d12 backend will be built)
 
 ### Enumerate compute devices
 
@@ -335,6 +335,31 @@ If everything goes well a window should open with a 512x512 image with random pi
 
 Try experimenting with different dispatch() arguments to see how the behaviour changes.
 
+## compushady.Heap
+
+By default resources (Buffers, Textures) automatically allocates memory based on the heap type. If you want to have more control over memory allocations, you can independently allocate memory blocks (heaps) and then map resources to them (or part of them):
+
+```py
+from compushady import HEAP_UPLOAD, Buffer, Heap
+
+heap_upload = Heap(HEAP_UPLOAD, 256 * 1024) # allocates 256k of memory
+buffer0 = Buffer(
+    size=256, heap_type=HEAP_UPLOAD, heap=heap_upload, heap_offset=64 * 1024
+) # maps a 256 bytes buffer on heap_upload at offest 64k
+buffer1 = Buffer(
+    size=256, heap_type=HEAP_UPLOAD, heap=heap_upload, heap_offset=128 * 1024
+) # maps a 256 bytes buffer on heap_upload at offest 128k
+buffer_all = Buffer(
+    size=256 * 1024, heap_type=HEAP_UPLOAD, heap=heap_upload, heap_offset=0
+) # maps the whole heap in a buffer
+```
+
+Notes: 
+
+* the heap type specified for the resource and the heap must be similar.
+* the size of the requested resource and the heap is always checked
+* Textures only support HEAP_DEFAULT
+
 ## compushady.Swapchain
 
 While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
@@ -394,7 +419,7 @@ TODO
 
 ## Multithreading
 
-TODO
+You can run/create object in threads and run them concurrently (the backends release the GIL while the GPU taska are running)
 
 ## Backends
 
