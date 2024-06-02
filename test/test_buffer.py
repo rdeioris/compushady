@@ -46,3 +46,10 @@ class BufferTests(unittest.TestCase):
         data = bytearray(8)
         b1.readback(data)
         self.assertEqual(data, b'hello!!!')
+
+    def test_upload_chunked(self):
+        b0 = Buffer(8, HEAP_UPLOAD)
+        b1 = Buffer(8, HEAP_READBACK)
+        b0.upload_chunked(b'\xaa\xbb\x11\x22', 2, b'\xee\xff')
+        b0.copy_to(b1)
+        self.assertEqual(b1.readback(), b'\xaa\xbb\xee\xff\x11\x22\xee\xff')
