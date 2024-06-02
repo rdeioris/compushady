@@ -360,6 +360,47 @@ Notes:
 * the size of the requested resource and the heap is always checked
 * Textures only support HEAP_DEFAULT
 
+## compushady.Sampler
+
+Samplers are used for retrieving pixels from textures using various forms of filtering and addressing.
+
+In addition to CBV, SRV and UAV a "samplers" parameters is available when creating Computes object.
+
+```py
+sampler = Sampler(
+            address_mode_u=SAMPLER_ADDRESS_MODE_CLAMP,
+            address_mode_v=SAMPLER_ADDRESS_MODE_CLAMP,
+            address_mode_w=SAMPLER_ADDRESS_MODE_CLAMP,
+            filter_min=SAMPLER_FILTER_POINT,
+            filter_mag=SAMPLER_FILTER_POINT,
+        )
+```
+
+You can sample textures from your shader like in a common graphics shader (with the difference that you need to specify the MIP level manually)
+
+```hlsl
+SamplerState sampler0;
+Texture2D<float4> source;
+RWTexture2D<float4> target;
+
+[numthreads(1,1,1)]
+void main(int3 tid : SV_DispatchThreadID)
+{
+    target[tid.xy] = source.SampleLevel(sampler0, float2(float(tid.x), float(tid.y)), 0);
+}
+```
+
+Supported addressing modes:
+
+* SAMPLER_ADDRESS_MODE_WRAP
+* SAMPLER_ADDRESS_MODE_MIRROR
+* SAMPLER_ADDRESS_MODE_CLAMP
+
+Supported filters:
+
+* SAMPLER_FILTER_POINT
+* SAMPLER_FILTER_LINEAR
+
 ## compushady.Swapchain
 
 While very probably you are going to run compushady in a headless environment, the module exposes a Swapchain object for blitting your textures on a window.
