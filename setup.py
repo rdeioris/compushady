@@ -101,7 +101,11 @@ backends.append(
 
 additional_files = []
 if is_windows:
-    additional_files = ["backends/dxcompiler.dll", "backends/dxil.dll"]
+    additional_files = [
+        "backends/dxcompiler.dll",
+        "backends/dxil.dll",
+        "backends/compushady_naga.dll",
+    ]
 elif platform.system() == "Linux":
     if platform.machine() == "armv7l":
         additional_files = ["backends/libdxcompiler_armv7l.so.3.7"]
