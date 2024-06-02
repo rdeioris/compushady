@@ -114,7 +114,7 @@ elif platform.system() == "Linux":
     else:
         additional_files = ["backends/libdxcompiler_x86_64.so.3.7"]
 elif is_mac:
-    additional_files = ["backends/libdxcompiler.3.7.dylib"]
+    additional_files = ["backends/libdxcompiler.3.7.dylib", "backends/libcompushady_naga.dylib"]
 
 setup(
     name="compushady",
