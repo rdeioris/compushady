@@ -2309,7 +2309,6 @@ static PyObject *vulkan_Resource_upload2d(vulkan_Resource *self, PyObject *args)
         offset += amount;
     }
 
-    memcpy(mapped_data + offset, view.buf, view.len);
     vkUnmapMemory(self->py_device->device, self->memory);
     PyBuffer_Release(&view);
 
