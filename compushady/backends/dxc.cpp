@@ -107,6 +107,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_SPIRV || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_GLSL)
 	{
 		arguments.push_back(L"-spirv");
+		arguments.push_back(L"-fvk-auto-shift-bindings");
 		arguments.push_back(L"-fvk-t-shift");
 		arguments.push_back(L"1024");
 		arguments.push_back(L"0");
@@ -116,6 +117,8 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"-fvk-s-shift");
 		arguments.push_back(L"3072");
 		arguments.push_back(L"0");
+		arguments.push_back(L"-fvk-use-dx-layout");
+		arguments.push_back(L"-fvk-use-scalar-layout");
 	}
 
 	IDxcOperationResult* result;
