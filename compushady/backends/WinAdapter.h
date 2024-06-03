@@ -33,6 +33,8 @@
 #include <vector>
 #endif // __cplusplus
 
+#define COM_NO_WINDOWS_H // needed to inform d3d headers that this isn't windows
+
 //===----------------------------------------------------------------------===//
 //
 //                             Begin: Macro Definitions
@@ -49,13 +51,9 @@
 #define _countof(a) (sizeof(a) / sizeof(*(a)))
 
 // If it is GCC, there is no UUID support and we must emulate it.
-#ifdef __APPLE__
-#define __EMULATE_UUID 1
-#else
 #ifndef __clang__
 #define __EMULATE_UUID 1
 #endif // __clang__
-#endif
 
 #ifdef __EMULATE_UUID
 #define __declspec(x)
@@ -68,10 +66,11 @@
 #endif // __EMULATE_UUID
 
 #define STDMETHODCALLTYPE
-#define STDAPI extern "C" HRESULT STDAPICALLTYPE
-#define STDAPI_(type) extern "C" type STDAPICALLTYPE
-#define STDMETHODIMP HRESULT STDMETHODCALLTYPE
 #define STDMETHODIMP_(type) type STDMETHODCALLTYPE
+#define STDMETHODIMP STDMETHODIMP_(HRESULT)
+#define STDMETHOD_(type, name) virtual STDMETHODIMP_(type) name
+#define STDMETHOD(name) STDMETHOD_(HRESULT, name)
+#define EXTERN_C extern "C"
 
 #define UNREFERENCED_PARAMETER(P) (void)(P)
 
@@ -92,13 +91,12 @@
 #define FALSE 0
 #define TRUE 1
 
-#define REGDB_E_CLASSNOTREG 1
-
 // We ignore the code page completely on Linux.
 #define GetConsoleOutputCP() 0
 
 #define _HRESULT_TYPEDEF_(_sc) ((HRESULT)_sc)
 #define DISP_E_BADINDEX _HRESULT_TYPEDEF_(0x8002000BL)
+#define REGDB_E_CLASSNOTREG _HRESULT_TYPEDEF_(0x80040154L)
 
 // This is an unsafe conversion. If needed, we can later implement a safe
 // conversion that throws exceptions for overflow cases.
@@ -123,11 +121,12 @@
 #define ERROR_NOT_CAPABLE EPERM
 #define ERROR_NOT_FOUND ENOTSUP
 #define ERROR_UNHANDLED_EXCEPTION EBADF
+#define ERROR_BROKEN_PIPE EPIPE
 
 // Used by HRESULT <--> WIN32 error code conversion
 #define SEVERITY_ERROR 1
 #define FACILITY_WIN32 7
-#define HRESULT_CODE(hr) ((hr)&0xFFFF)
+#define HRESULT_CODE(hr) ((hr) & 0xFFFF)
 #define MAKE_HRESULT(severity, facility, code)                                 \
   ((HRESULT)(((unsigned long)(severity) << 31) |                               \
              ((unsigned long)(facility) << 16) | ((unsigned long)(code))))
@@ -184,7 +183,7 @@
 #define _strdup strdup
 #define _strnicmp strnicmp
 
-#define vsprintf_s vsprintf
+#define vsnprintf_s vsnprintf
 #define strcat_s strcat
 #define strcpy_s(dst, n, src) strncpy(dst, src, n)
 #define _vscwprintf vwprintf
@@ -239,7 +238,7 @@
 
 #define HRESULT_FROM_WIN32(x)                                                  \
   (HRESULT)(x) <= 0 ? (HRESULT)(x)                                             \
-                    : (HRESULT)(((x)&0x0000FFFF) | (7 << 16) | 0x80000000)
+                    : (HRESULT)(((x) & 0x0000FFFF) | (7 << 16) | 0x80000000)
 
 //===----------------------------------------------------------------------===//
 //
@@ -251,87 +250,30 @@
 #define _In_opt_
 #define _In_opt_count_(size)
 #define _In_opt_z_
-#define _In_reads_(size)
-#define _In_reads_bytes_(size)
-#define _In_reads_bytes_opt_(size)
-#define _In_reads_opt_(size)
-#define _In_reads_to_ptr_(ptr)
 #define _In_count_(size)
-#define _In_range_(lb, ub)
 #define _In_bytecount_(size)
-#define _In_opt_bytecount_(size)
-#define _In_NLS_string_(size)
-#define __in_bcount(size)
 
 #define _Out_
-#define _Out_bytecap_(nbytes)
-#define _Out_writes_to_(a, b)
-#define _Out_writes_to_opt_(a, b)
+#define _Out_opt_
 #define _Outptr_
 #define _Outptr_opt_
-#define _Outptr_opt_result_z_
-#define _Out_opt_
-#define _Out_writes_(size)
-#define _Out_write_bytes_(size)
-#define _Out_writes_z_(size)
-#define _Out_writes_all_(size)
-#define _Out_writes_bytes_(size)
-#define _Outref_result_buffer_(size)
-#define _Outptr_result_buffer_(size)
-#define _Out_cap_(size)
-#define _Out_cap_x_(size)
-#define _Out_range_(lb, ub)
 #define _Outptr_result_z_
-#define _Outptr_result_buffer_maybenull_(ptr)
+#define _Outptr_opt_result_z_
 #define _Outptr_result_maybenull_
 #define _Outptr_result_nullonfailure_
-
-#define __out_ecount_part(a, b)
-
-#define _Inout_
-#define _Inout_z_
-#define _Inout_opt_
-#define _Inout_cap_(size)
-#define _Inout_count_(size)
-#define _Inout_count_c_(size)
-#define _Inout_opt_count_c_(size)
-#define _Inout_bytecount_c_(size)
-#define _Inout_opt_bytecount_c_(size)
-
-#define _Ret_maybenull_
-#define _Ret_notnull_
-#define _Ret_opt_
-
-#define _Use_decl_annotations_
-#define __analysis_assume(expr)
-#define _Analysis_assume_(expr)
-#define _Analysis_assume_nullterminated_(x)
-#define _Success_(expr)
-
-#define __inexpressible_readableTo(size)
-#define __inexpressible_writableTo(size)
-
-#define _Printf_format_string_
-#define _Null_terminated_
-#define __fallthrough
-
-#define _Field_size_(size)
-#define _Field_size_full_(size)
-#define _Field_size_opt_(size)
-#define _Post_writable_byte_size_(size)
-#define _Post_readable_byte_size_(size)
-#define __drv_allocatesMem(mem)
+#define _Outptr_result_buffer_maybenull_(ptr)
+#define _Outptr_result_buffer_(ptr)
 
 #define _COM_Outptr_
 #define _COM_Outptr_opt_
 #define _COM_Outptr_result_maybenull_
 #define _COM_Outptr_opt_result_maybenull_
 
-#define _Null_
-#define _Notnull_
-#define _Maybenull_
+#define THIS_
+#define THIS
+#define PURE = 0
 
-#define _Outptr_result_bytebuffer_(size)
+#define _Maybenull_
 
 #define __debugbreak()
 
@@ -369,6 +311,7 @@ typedef unsigned int UINT;
 typedef unsigned long ULONG;
 typedef long long LONGLONG;
 typedef long long LONG_PTR;
+typedef unsigned long long ULONG_PTR;
 typedef unsigned long long ULONGLONG;
 
 typedef uint16_t WORD;
@@ -408,6 +351,7 @@ typedef signed int HRESULT;
 //===--------------------- Handle Types -----------------------------------===//
 
 typedef void *HANDLE;
+typedef void *RPC_IF_HANDLE;
 
 #define DECLARE_HANDLE(name)                                                   \
   struct name##__ {                                                            \
@@ -615,21 +559,25 @@ template <typename T> inline void **IID_PPV_ARGS_Helper(T **pp) {
 
 #endif // __EMULATE_UUID
 
+// Needed for d3d headers, but fail to create actual interfaces
+#define DEFINE_GUID(name, l, w1, w2, b1, b2, b3, b4, b5, b6, b7, b8)           \
+  const GUID name = {l, w1, w2, {b1, b2, b3, b4, b5, b6, b7, b8}}
+#define DECLSPEC_UUID(x)
+#define MIDL_INTERFACE(x) struct DECLSPEC_UUID(x)
+#define DECLARE_INTERFACE(iface) struct iface
+#define DECLARE_INTERFACE_(iface, parent) DECLARE_INTERFACE(iface) : parent
+
 //===--------------------- COM Interfaces ---------------------------------===//
 
 CROSS_PLATFORM_UUIDOF(IUnknown, "00000000-0000-0000-C000-000000000046")
 struct IUnknown {
-  IUnknown() : m_count(0) {};
+  IUnknown(){};
   virtual HRESULT QueryInterface(REFIID riid, void **ppvObject) = 0;
-  virtual ULONG AddRef();
-  virtual ULONG Release();
-  virtual ~IUnknown();
+  virtual ULONG AddRef() = 0;
+  virtual ULONG Release() = 0;
   template <class Q> HRESULT QueryInterface(Q **pp) {
     return QueryInterface(__uuidof(Q), (void **)pp);
   }
-
-private:
-  std::atomic<unsigned long> m_count;
 };
 
 CROSS_PLATFORM_UUIDOF(INoMarshal, "ECC8691B-C1DB-4DC0-855E-65F6C551AF49")
@@ -637,10 +585,12 @@ struct INoMarshal : public IUnknown {};
 
 CROSS_PLATFORM_UUIDOF(IMalloc, "00000002-0000-0000-C000-000000000046")
 struct IMalloc : public IUnknown {
-  virtual void *Alloc(size_t size);
-  virtual void *Realloc(void *ptr, size_t size);
-  virtual void Free(void *ptr);
-  virtual HRESULT QueryInterface(REFIID riid, void **ppvObject);
+  virtual void *Alloc(SIZE_T size) = 0;
+  virtual void *Realloc(void *ptr, SIZE_T size) = 0;
+  virtual void Free(void *ptr) = 0;
+  virtual SIZE_T GetSize(void *pv) = 0;
+  virtual int DidAlloc(void *pv) = 0;
+  virtual void HeapMinimize(void) = 0;
 };
 
 CROSS_PLATFORM_UUIDOF(ISequentialStream, "0C733A30-2A1C-11CE-ADE5-00AA0044773D")
@@ -672,6 +622,13 @@ struct IStream : public ISequentialStream {
 
   virtual HRESULT Clone(IStream **ppstm) = 0;
 };
+
+// These don't need stub implementations as they come from the DirectX Headers
+// They still need the __uuidof() though
+CROSS_PLATFORM_UUIDOF(ID3D12LibraryReflection,
+                      "8E349D19-54DB-4A56-9DC9-119D87BDB804")
+CROSS_PLATFORM_UUIDOF(ID3D12ShaderReflection,
+                      "5A58797D-A72C-478D-8BA2-EFC6B0EFE88E")
 
 //===--------------------- COM Pointer Types ------------------------------===//
 
@@ -802,6 +759,14 @@ public:
     }
     return *this;
   }
+
+  // NOTE: This conversion constructor is not part of the official CComPtr spec;
+  // however, it is needed to convert CComPtr<Q> to CComPtr<T> where T derives
+  // from Q on Clang. MSVC compiles this conversion as first a call to
+  // CComPtr<Q>::operator T*, followed by CComPtr<T>(T*), but Clang fails to
+  // compile with error: no viable conversion from 'CComPtr<Q>' to 'CComPtr<T>'.
+  template <typename Q>
+  CComPtr(const CComPtr<Q> &lp) throw() : CComPtrBase<T>(lp.p) {}
 
   T *operator=(const CComPtr<T> &lp) throw() {
     if (*this != lp) {
@@ -938,38 +903,49 @@ void SysFreeString(BSTR bstrString);
 // Allocate string with length prefix
 BSTR SysAllocStringLen(const OLECHAR *strIn, UINT ui);
 
+//===--------------------------- BSTR Length ------------------------------===//
+unsigned int SysStringLen(const BSTR bstrString);
+
 //===--------------------- UTF-8 Related Types ----------------------------===//
 
 // Code Page
 #define CP_ACP 0
 #define CP_UTF8 65001 // UTF-8 translation.
 
-// Convert Windows codepage value to locale string
-const char *CPToLocale(uint32_t CodePage);
+// RAII style mechanism for setting/unsetting a locale for the specified Windows
+// codepage
+class ScopedLocale {
+  const char *m_prevLocale;
+
+public:
+  explicit ScopedLocale(uint32_t codePage)
+      : m_prevLocale(setlocale(LC_ALL, nullptr)) {
+    assert((codePage == CP_UTF8) &&
+           "Support for Linux only handles UTF8 code pages");
+    setlocale(LC_ALL, "en_US.UTF-8");
+  }
+  ~ScopedLocale() {
+    if (m_prevLocale != nullptr) {
+      setlocale(LC_ALL, m_prevLocale);
+    }
+  }
+};
 
 // The t_nBufferLength parameter is part of the published interface, but not
 // used here.
 template <int t_nBufferLength = 128> class CW2AEX {
 public:
-  CW2AEX(LPCWSTR psz, UINT nCodePage = CP_UTF8) {
-    const char *locale = CPToLocale(nCodePage);
-    if (locale == nullptr) {
-      // Current Implementation only supports CP_UTF8, and CP_ACP
-      assert(false && "CW2AEX implementation for Linux only handles "
-                      "UTF8 and ACP code pages");
-      return;
-    }
+  CW2AEX(LPCWSTR psz) {
+    ScopedLocale locale(CP_UTF8);
 
     if (!psz) {
       m_psz = NULL;
       return;
     }
 
-    locale = setlocale(LC_ALL, locale);
     int len = (wcslen(psz) + 1) * 4;
     m_psz = new char[len];
     std::wcstombs(m_psz, psz, len);
-    setlocale(LC_ALL, locale);
   }
 
   ~CW2AEX() { delete[] m_psz; }
@@ -984,25 +960,17 @@ typedef CW2AEX<> CW2A;
 // used here.
 template <int t_nBufferLength = 128> class CA2WEX {
 public:
-  CA2WEX(LPCSTR psz, UINT nCodePage = CP_UTF8) {
-    const char *locale = CPToLocale(nCodePage);
-    if (locale == nullptr) {
-      // Current Implementation only supports CP_UTF8, and CP_ACP
-      assert(false && "CA2WEX implementation for Linux only handles "
-                      "UTF8 and ACP code pages");
-      return;
-    }
+  CA2WEX(LPCSTR psz) {
+    ScopedLocale locale(CP_UTF8);
 
     if (!psz) {
       m_psz = NULL;
       return;
     }
 
-    locale = setlocale(LC_ALL, locale);
     int len = strlen(psz) + 1;
     m_psz = new wchar_t[len];
     std::mbstowcs(m_psz, psz, len);
-    setlocale(LC_ALL, locale);
   }
 
   ~CA2WEX() { delete[] m_psz; }
@@ -1024,6 +992,44 @@ public:
 
 private:
   HANDLE m_h;
+};
+
+/////////////////////////////////////////////////////////////////////////////
+// CComBSTR
+
+class CComBSTR {
+public:
+  BSTR m_str;
+  CComBSTR() : m_str(nullptr){};
+  CComBSTR(int nSize, LPCWSTR sz);
+  ~CComBSTR() throw() { SysFreeString(m_str); }
+  unsigned int Length() const throw() { return SysStringLen(m_str); }
+  operator BSTR() const throw() { return m_str; }
+
+  bool operator==(const CComBSTR &bstrSrc) const throw();
+
+  BSTR *operator&() throw() { return &m_str; }
+
+  BSTR Detach() throw() {
+    BSTR s = m_str;
+    m_str = NULL;
+    return s;
+  }
+
+  void Empty() throw() {
+    SysFreeString(m_str);
+    m_str = NULL;
+  }
+};
+
+//===--------- Convert argv to wchar ----------------===//
+class WArgV {
+  std::vector<std::wstring> WStringVector;
+  std::vector<const wchar_t *> WCharPtrVector;
+
+public:
+  WArgV(int argc, const char **argv);
+  const wchar_t **argv() { return WCharPtrVector.data(); }
 };
 
 #endif // __cplusplus

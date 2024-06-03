@@ -18,7 +18,7 @@ elif platform.system() == "Linux":
     elif platform.machine() == "aarch64":
         lib_path = os.path.join(lib_dir, "libdxcompiler_aarch64.so.3.7")
     else:
-        lib_path = os.path.join(lib_dir, "libdxcompiler_x86_64.so.3.7")
+        lib_path = os.path.join(lib_dir, "libdxcompiler_x86_64.so")
     import ctypes
 
     ctypes.CDLL(lib_path, ctypes.RTLD_GLOBAL)
