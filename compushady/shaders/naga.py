@@ -7,7 +7,10 @@ lib_dir = os.path.join(os.path.dirname(__file__), "..", "backends")
 if platform.system() == "Windows":
     lib_name = "compushady_naga.dll"
 elif platform.system() == "Linux":
-    lib_name = "libcompushady_naga_x86_64.so"
+    if platform.machine() == "aarch64":
+        lib_name = "libcompushady_naga_aarch64.so"
+    else:
+        lib_name = "libcompushady_naga_x86_64.so"
 elif platform.system() == "Darwin":
     lib_name = "libcompushady_naga.dylib"
 
