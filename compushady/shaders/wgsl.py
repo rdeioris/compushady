@@ -94,5 +94,7 @@ def compile(source, entry_point="main", target="cs_6_0"):
         naga.compushady_naga_free(msl_ptr, output_len.value)
 
         from compushady.backends import metal
+        if entry_point == "main":
+            entry_point = "main_"
 
         return metal.msl_compile(msl_source, entry_point, (x.value, y.value, z.value))

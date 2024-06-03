@@ -60,12 +60,12 @@ var target0: texture_storage_2d<rgba8unorm, write>;
 var<uniform> multiplier : f32;
 
 @compute @workgroup_size(1, 1, 1)
-fn main(@builtin(global_invocation_id) tid: vec3<u32>)
+fn test(@builtin(global_invocation_id) tid: vec3<u32>)
 {
     let color : vec4<f32> = textureSampleLevel(source0, sampler0, vec2<f32>(f32(tid.x), f32(tid.y)), 0.0);
     textureStore(target0, tid.xy, color * multiplier);
 }
-"""
+""", "test"
         )
 
         compute = Compute(shader, cbv=[b0], srv=[t0], uav=[t1], samplers=[sampler])
@@ -119,10 +119,10 @@ fn main() {
 var output0 : texture_storage_1d<r32uint, read_write>;
 
 @compute @workgroup_size(1, 1, 1)
-fn main() {
+fn test() {
     textureStore(output0, 0, textureLoad(output0, 0) * 3);
 }
-            """
+            """, "test"
         )
         compute = Compute(shader, uav=[u0])
         compute.dispatch(1, 1, 1)
