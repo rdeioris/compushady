@@ -1373,6 +1373,11 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     if (!PyArg_ParseTuple(args, "IiOK", &width, &format, &py_heap, &heap_offset))
         return NULL;
 
+    if (width == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid width");
+    }
+
     if (vulkan_formats.find(format) == vulkan_formats.end())
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");

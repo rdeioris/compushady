@@ -20,6 +20,9 @@ class Texture1DTests(unittest.TestCase):
         b1.copy_to(b2)
         self.assertEqual(b2.readback(4), b"\xDE\xAD\xBE\xEF")
 
+    def test_zero_width(self):
+        self.assertRaises(ValueError, Texture1D, 0, R16G16B16A16_FLOAT)
+
     def test_simple_upload_float(self):
         t0 = Texture1D(2, R16G16B16A16_FLOAT)
         b0 = Buffer(t0.size, HEAP_UPLOAD)
