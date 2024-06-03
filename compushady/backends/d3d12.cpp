@@ -787,6 +787,11 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	if (!PyArg_ParseTuple(args, "IiOK", &width, &format, &py_heap, &heap_offset))
 		return NULL;
 
+	if (width == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid width");
+	}
+
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
@@ -810,10 +815,7 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	resource_desc.Format = format;
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
-	if (heap_properties.Type == D3D12_HEAP_TYPE_DEFAULT)
-	{
-		resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-	}
+	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
@@ -979,6 +981,16 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	if (!PyArg_ParseTuple(args, "IIiOK", &width, &height, &format, &py_heap, &heap_offset))
 		return NULL;
 
+	if (width == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid width");
+	}
+
+	if (height == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid height");
+	}
+
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
@@ -1092,6 +1104,21 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	SIZE_T heap_offset;
 	if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
 		return NULL;
+
+	if (width == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid width");
+	}
+
+	if (height == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid height");
+	}
+
+	if (depth == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid depth");
+	}	
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
 	{
