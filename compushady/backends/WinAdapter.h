@@ -52,6 +52,7 @@
 
 #ifdef __APPLE__
 #define __EMULATE_UUID 1
+#else
 // If it is GCC, there is no UUID support and we must emulate it.
 #ifndef __clang__
 #define __EMULATE_UUID 1
