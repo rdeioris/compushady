@@ -23,7 +23,7 @@ elif platform.system() == "Linux":
 
     ctypes.CDLL(lib_path, ctypes.RTLD_GLOBAL)
 elif platform.system() == "Darwin":
-    lib_path = os.path.join(lib_dir, "libdxcompiler.3.7.dylib")
+    lib_path = os.path.join(lib_dir, "libdxcompiler.dylib")
     import ctypes
 
     ctypes.CDLL(lib_path, ctypes.RTLD_GLOBAL)
