@@ -2440,7 +2440,7 @@ static PyObject *vulkan_Resource_readback2d(vulkan_Resource *self, PyObject *arg
     if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
         return NULL;
 
-    if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
+    if (compushady_get_size_by_pitch(pitch, width, height, 1, bytes_per_pixel) > self->size)
     {
         return PyErr_Format(PyExc_ValueError,
                             "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height,
@@ -2481,7 +2481,16 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     uint64_t size;
     uint64_t src_offset;
     uint64_t dst_offset;
-    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t src_x;
+    uint32_t src_y;
+    uint32_t src_z;
+    uint32_t dst_x;
+    uint32_t dst_y;
+    uint32_t dst_z;
+    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject *)&vulkan_Resource_Type);
@@ -2502,12 +2511,70 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         size = self->size;
     }
 
-    if (src_offset + size > self->size || dst_offset + size > dst_size)
+    // buffer to buffer
+    if (self->buffer && dst_resource->buffer)
     {
-        return PyErr_Format(PyExc_ValueError,
-                            "Resource size is bigger than destination size: %llu "
-                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
-                            size, dst_size, src_offset, dst_offset);
+        if (src_offset + size > self->size || dst_offset + size > dst_size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_offset: %llu)",
+                                size, self->size, src_offset, dst_size, dst_offset);
+        }
+    }
+    // buffer to texture
+    else if (self->buffer && dst_resource->image)
+    {
+        dst_x = 0;
+        dst_y = 0;
+        dst_z = 0;
+        if (src_offset + size > self->size || size < dst_size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_width: %u, dst_height: %u, dst_depth: %u)",
+                                size, size, src_offset, dst_resource->size, dst_resource->image_extent.width, dst_resource->image_extent.height, dst_resource->image_extent.depth);
+        }
+    }
+    // texture to buffer
+    else if (self->image && dst_resource->buffer)
+    {
+        dst_x = 0;
+        dst_y = 0;
+        dst_z = 0;
+        if (dst_offset + size > dst_size || size < self->size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(dst_size: %llu, dst_offset: %llu, src_size: %llu, src_width: %u, src_height: %u, src_depth: %u)",
+                                size, dst_size, src_offset, dst_resource->size, self->image_extent.width, self->image_extent.height, self->image_extent.depth);
+        }
+    }
+    // texture to texture
+    else
+    {
+        if (width == 0)
+        {
+            width = self->image_extent.width;
+        }
+
+        if (height == 0)
+        {
+            height = self->image_extent.height;
+        }
+
+        if (depth == 0)
+        {
+            depth = self->image_extent.depth;
+        }
+
+        if (src_x + width > self->image_extent.width || src_y + height > self->image_extent.height || src_z + depth > self->image_extent.depth || dst_x + width > dst_resource->image_extent.width || dst_y + height > dst_resource->image_extent.height || dst_z + depth > dst_resource->image_extent.depth)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (width: %u, height: %u, depth: %u) is out of bounds "
+                                "(src_width: %u, src_height: %u, src_depth: %u, dst_width: %u, dst_height: %u, dst_depth: %u)",
+                                width, height, depth, self->image_extent.width, self->image_extent.height, self->image_extent.depth, dst_resource->image_extent.width, dst_resource->image_extent.height, dst_resource->image_extent.depth);
+        }
     }
 
     VkCommandBufferBeginInfo begin_info = {};
@@ -2595,9 +2662,17 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         VkImageCopy image_copy = {};
         image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_copy.srcSubresource.layerCount = 1;
+        image_copy.srcOffset.x = src_x;
+        image_copy.srcOffset.y = src_y;
+        image_copy.srcOffset.z = src_z;
         image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         image_copy.dstSubresource.layerCount = 1;
-        image_copy.extent = self->image_extent;
+        image_copy.dstOffset.x = dst_x;
+        image_copy.dstOffset.y = dst_y;
+        image_copy.dstOffset.z = dst_z;
+        image_copy.extent.width = width;
+        image_copy.extent.height = height;
+        image_copy.extent.depth = depth;
         vkCmdCopyImage(self->py_device->command_buffer, self->image,
                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->image,
                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &image_copy);

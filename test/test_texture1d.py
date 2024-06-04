@@ -46,3 +46,24 @@ class Texture1DTests(unittest.TestCase):
         b1 = Buffer(t0.size, HEAP_READBACK)
         t0.copy_to(b1)
         self.assertEqual(b1.readback(8), struct.pack("<II", 2, 3))
+
+    def test_copy_to_with_insufficient_data(self):
+        t0 = Texture1D(4, R32_UINT)
+        b0 = Buffer(t0.size, HEAP_UPLOAD)
+        self.assertRaises(ValueError, b0.copy_to, t0, 1)
+
+    def test_copy_from_with_insufficient_data(self):
+        t0 = Texture1D(4, R32_UINT)
+        b0 = Buffer(t0.size, HEAP_READBACK)
+        self.assertRaises(ValueError, t0.copy_to, b0, 1)
+
+    def test_texture_to_texture(self):
+        t0 = Texture1D(4, R32_UINT)
+        b0 = Buffer(t0.size, HEAP_UPLOAD)
+        b0.upload(struct.pack("<IIII", 1, 2, 3, 4))
+        b0.copy_to(t0)
+        t1 = Texture1D(2, R32_UINT)
+        b1 = Buffer(t1.size, HEAP_READBACK)
+        t0.copy_to(t1, width=2, src_x=2)
+        t1.copy_to(b1)
+        self.assertEqual(b1.readback(8), struct.pack("<II", 3, 4))

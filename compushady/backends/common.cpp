@@ -209,11 +209,12 @@ PyObject *compushady_backend_init(PyModuleDef *py_module_def,
 	return m;
 }
 
-size_t compushady_get_size_by_pitch(const size_t pitch, const size_t width, const size_t height)
+size_t compushady_get_size_by_pitch(const size_t pitch, const size_t width, const size_t height, const size_t depth, const size_t bytes_per_pixel)
 {
-	if (height > 1)
+	const size_t rows = height * depth;
+	if (rows > 1)
 	{
-		return (pitch * (height - 1)) + width;
+		return (pitch * (rows - 1)) + (bytes_per_pixel * width);
 	}
 	return pitch;
 }
