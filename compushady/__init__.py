@@ -272,3 +272,6 @@ class Compute:
 
     def dispatch(self, x, y, z):
         self.handle.dispatch(x, y, z)
+
+    def dispatch_indirect(self, indirect_buffer, offset=0):
+        self.handle.dispatch_indirect(indirect_buffer.handle, offset)
