@@ -473,8 +473,92 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     Py_RETURN_NONE;
 }
 
+static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* args)
+{
+
+    PyObject *py_indirect_buffer;
+    uint32_t offset;
+    if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+        return NULL;
+
+    int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    metal_Resource *py_resource = (metal_Resource *)py_indirect_buffer;
+    if (!py_resource->buffer)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+    }
+
+    id<MTLCommandBuffer> compute_command_buffer = [self->py_device->command_queue commandBuffer];
+    id<MTLComputeCommandEncoder> compute_command_encoder =
+        [compute_command_buffer computeCommandEncoder];
+
+    [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
+
+    uint32_t buffer_index = 0;
+    uint32_t texture_index = 0;
+    uint32_t sampler_index = 0;
+
+    for (size_t i = 0; i < self->cbv.size(); i++)
+    {
+        metal_Resource* py_resource = self->cbv[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->srv.size(); i++)
+    {
+        metal_Resource* py_resource = self->srv[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->uav.size(); i++)
+    {
+        metal_Resource* py_resource = self->uav[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->samplers.size(); i++)
+    {
+        metal_Sampler* py_sampler = self->samplers[i];
+        [compute_command_encoder setSamplerState:py_sampler->sampler atIndex:sampler_index++];
+    }
+
+    [compute_command_encoder
+         dispatchThreadgroupsWithIndirectBuffer:py_resource->buffer indirectBufferOffset:offset
+        threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y,
+                                  self->py_mtl_function->z)];
+
+    [compute_command_encoder endEncoding];
+
+    [compute_command_buffer commit];
+    [compute_command_buffer waitUntilCompleted];
+
+    [compute_command_encoder release];
+    [compute_command_buffer release];
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef metal_Compute_methods[] = {
     { "dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline" },
+    { "dispatch_indirect", (PyCFunction)metal_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline" },
     { NULL, NULL, 0, NULL } /* Sentinel */
 };
 
