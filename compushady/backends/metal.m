@@ -1493,7 +1493,7 @@ static PyObject *metal_Resource_readback2d(metal_Resource *self, PyObject *args)
         if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
                 return NULL;
 
-        if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
+        if (compushady_get_size_by_pitch(pitch, width, height, 1, bytes_per_pixel) > self->size)
         {
                 return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
         }
@@ -1546,7 +1546,16 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     uint64_t size;
     uint64_t src_offset;
     uint64_t dst_offset;
-    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
+    uint32_t width;
+    uint32_t height;
+    uint32_t depth;
+    uint32_t src_x;
+    uint32_t src_y;
+    uint32_t src_z;
+    uint32_t dst_x;
+    uint32_t dst_y;
+    uint32_t dst_z;
+    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
@@ -1567,12 +1576,70 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     metal_Resource* dst_resource = (metal_Resource*)py_destination;
     size_t dst_size = ((metal_Resource*)py_destination)->size;
 
-    if (src_offset + size > self->size || dst_offset + size > dst_size)
+    // buffer to buffer
+    if (self->buffer && dst_resource->buffer)
     {
-        return PyErr_Format(PyExc_ValueError,
-                            "Resource size is bigger than destination size: %llu "
-                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
-                            size, dst_size, src_offset, dst_offset);
+        if (src_offset + size > self->size || dst_offset + size > dst_size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_offset: %llu)",
+                                size, self->size, src_offset, dst_size, dst_offset);
+        }
+    }
+    // buffer to texture
+    else if (self->buffer && dst_resource->texture)
+    {
+        dst_x = 0;
+        dst_y = 0;
+        dst_z = 0;
+        if (src_offset + size > self->size || size < dst_size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_width: %u, dst_height: %u, dst_depth: %u)",
+                                size, size, src_offset, dst_resource->size, dst_resource->width, dst_resource->height, dst_resource->depth);
+        }
+    }
+    // texture to buffer
+    else if (self->texture && dst_resource->buffer)
+    {
+        dst_x = 0;
+        dst_y = 0;
+        dst_z = 0;
+        if (dst_offset + size > dst_size || size < self->size)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (%llu) is out of bounds "
+                                "(dst_size: %llu, dst_offset: %llu, src_size: %llu, src_width: %u, src_height: %u, src_depth: %u)",
+                                size, dst_size, src_offset, dst_resource->size, self->width, self->height, self->depth);
+        }
+    }
+    // texture to texture
+    else
+    {
+        if (width == 0)
+        {
+            width = self->width;
+        }
+
+        if (height == 0)
+        {
+            height = self->height;
+        }
+
+        if (depth == 0)
+        {
+            depth = self->depth;
+        }
+
+        if (src_x + width > self->width || src_y + height > self->height || src_z + depth > self->depth || dst_x + width > dst_resource->width || dst_y + height > dst_resource->height || dst_z + depth > dst_resource->depth)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Resource requested size to copy (width: %u, height: %u, depth: %u) is out of bounds "
+                                "(src_width: %u, src_height: %u, src_depth: %u, dst_width: %u, dst_height: %u, dst_depth: %u)",
+                                width, height, depth, self->width, self->height, self->depth, dst_resource->width, dst_resource->height, dst_resource->depth);
+        }
     }
 
     id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
@@ -1613,7 +1680,15 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     }
     else // image to image
     {
-        [blit_command_encoder copyFromTexture:self->texture toTexture:dst_resource->texture];
+        [blit_command_encoder copyFromTexture:self->texture
+					sourceSlice:0
+                                  	sourceLevel:0
+					sourceOrigin:MTLOriginMake(src_x, src_y, src_z)
+					sourceSize:MTLSizeMake(width, height, depth)
+					toTexture:dst_resource->texture
+                            		destinationSlice:0
+                            		destinationLevel:0
+                                	destinationOrigin:MTLOriginMake(dst_x, dst_y, dst_z)];
     }
 
     [blit_command_encoder endEncoding];
