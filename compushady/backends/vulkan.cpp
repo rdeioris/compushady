@@ -2540,6 +2540,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         buffer_image_copy.imageSubresource.layerCount = 1;
         buffer_image_copy.imageExtent = dst_resource->image_extent;
+        buffer_image_copy.bufferOffset = src_offset;
         vkCmdCopyBufferToImage(self->py_device->command_buffer, self->buffer, dst_resource->image,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy);
         image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -2564,6 +2565,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         buffer_image_copy.imageSubresource.layerCount = 1;
         buffer_image_copy.imageExtent = self->image_extent;
+        buffer_image_copy.bufferOffset = dst_offset;
         vkCmdCopyImageToBuffer(self->py_device->command_buffer, self->image,
                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->buffer, 1, &buffer_image_copy);
         image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;

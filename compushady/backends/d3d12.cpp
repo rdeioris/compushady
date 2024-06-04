@@ -1775,6 +1775,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			dest_location.PlacedFootprint = self->footprint;
+			dest_location.PlacedFootprint.Offset = dst_offset;
 		}
 		else
 		{
@@ -1791,6 +1792,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			src_location.PlacedFootprint = dst_resource->footprint;
+			src_location.PlacedFootprint.Offset = src_offset;
 		}
 		else
 		{
