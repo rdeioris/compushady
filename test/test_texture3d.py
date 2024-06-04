@@ -1,5 +1,5 @@
 import unittest
-from compushady import Texture3D, Buffer, HEAP_UPLOAD, HEAP_READBACK
+from compushady import Texture3D, Texture2D, Buffer, HEAP_UPLOAD, HEAP_READBACK
 from compushady.formats import R8G8B8A8_UINT, get_pixel_size, R16G16B16A16_FLOAT
 import compushady.config
 import struct
@@ -47,3 +47,20 @@ class Texture3DTests(unittest.TestCase):
         b0.copy_to(t0)
         t0.copy_to(b1)
         self.assertEqual(b1.readback(16), struct.pack("4f", 1, 2, 3, 4))
+
+    def test_copy_2d_to_3d(self):
+        t0 = Texture2D(256, 256, R8G8B8A8_UINT)
+        b0 = Buffer(t0.size, HEAP_UPLOAD)
+        b0.upload(struct.pack("<65536I", *range(0, 65536)))
+        b0.copy_to(t0)
+        t1 = Texture3D(256, 256, 2, R8G8B8A8_UINT)
+        b1 = Buffer(t1.size, HEAP_UPLOAD)
+        b1.upload(bytes(b1.size))
+        b1.copy_to(t1)
+        b2 = Buffer(t1.size, HEAP_READBACK)
+        t1.copy_to(b2)
+        self.assertEqual(b2.readback(), bytes(b2.size))
+        t0.copy_to(t1, dst_z=1)
+        t1.copy_to(b2)
+        self.assertEqual(b2.readback(1024), bytes(1024))
+        self.assertNotEqual(b2.readback(), bytes(b2.size))

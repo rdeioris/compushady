@@ -1643,7 +1643,7 @@ static PyObject *d3d12_Resource_readback2d(d3d12_Resource *self, PyObject *args)
 	if (!PyArg_ParseTuple(args, "IIII", &pitch, &width, &height, &bytes_per_pixel))
 		return NULL;
 
-	if (compushady_get_size_by_pitch(pitch, width, height) > self->size)
+	if (compushady_get_size_by_pitch(pitch, width, height, 1, bytes_per_pixel) > self->size)
 	{
 		return PyErr_Format(PyExc_ValueError, "requested buffer out of bounds: %llu (expected no more than %llu)", pitch * height, self->size);
 	}
@@ -1708,7 +1708,16 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	UINT64 size;
 	UINT64 src_offset;
 	UINT64 dst_offset;
-	if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
+	UINT width;
+	UINT height;
+	UINT depth;
+	UINT src_x;
+	UINT src_y;
+	UINT src_z;
+	UINT dst_x;
+	UINT dst_y;
+	UINT dst_z;
+	if (!PyArg_ParseTuple(args, "OKKKIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_destination, (PyObject *)&d3d12_Resource_Type);
@@ -1729,12 +1738,73 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		size = self->size;
 	}
 
-	if (src_offset + size > self->size || dst_offset + size > dst_size)
+	bool texture_to_texture_copy = false;
+	// buffer to buffer
+	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
-		return PyErr_Format(PyExc_ValueError,
-							"Resource size is bigger than destination size: %llu "
-							"(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
-							size, dst_size, src_offset, dst_offset);
+		if (src_offset + size > self->size || dst_offset + size > dst_size)
+		{
+			return PyErr_Format(PyExc_ValueError,
+								"Resource requested size to copy (%llu) is out of bounds "
+								"(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_offset: %llu)",
+								size, self->size, src_offset, dst_size, dst_offset);
+		}
+	}
+	// buffer to texture
+	else if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		dst_x = 0;
+		dst_y = 0;
+		dst_z = 0;
+		if (src_offset + size > self->size || size < dst_size)
+		{
+			return PyErr_Format(PyExc_ValueError,
+								"Resource requested size to copy (%llu) is out of bounds "
+								"(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_width: %u, dst_height: %u, dst_depth: %u)",
+								size, size, src_offset, dst_resource->size, dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth);
+		}
+	}
+	// texture to buffer
+	else if (self->dimension != D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		dst_x = 0;
+		dst_y = 0;
+		dst_z = 0;
+		if (dst_offset + size > dst_size || size < self->size)
+		{
+			return PyErr_Format(PyExc_ValueError,
+								"Resource requested size to copy (%llu) is out of bounds "
+								"(dst_size: %llu, dst_offset: %llu, src_size: %llu, src_width: %u, src_height: %u, src_depth: %u)",
+								size, dst_size, src_offset, dst_resource->size, self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth);
+		}
+	}
+	// texture to texture
+	else
+	{
+		if (width == 0)
+		{
+			width = self->footprint.Footprint.Width;
+		}
+
+		if (height == 0)
+		{
+			height = self->footprint.Footprint.Height;
+		}
+
+		if (depth == 0)
+		{
+			depth = self->footprint.Footprint.Depth;
+		}
+
+		if (src_x + width > self->footprint.Footprint.Width || src_y + height > self->footprint.Footprint.Height || src_z + depth > self->footprint.Footprint.Depth || dst_x + width > dst_resource->footprint.Footprint.Width || dst_y + height > dst_resource->footprint.Footprint.Height || dst_z + depth > dst_resource->footprint.Footprint.Depth)
+		{
+			return PyErr_Format(PyExc_ValueError,
+								"Resource requested size to copy (width: %u, height: %u, depth: %u) is out of bounds "
+								"(src_width: %u, src_height: %u, src_depth: %u, dst_width: %u, dst_height: %u, dst_depth: %u)",
+								width, height, depth, self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth, dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth);
+		}
+
+		texture_to_texture_copy = true;
 	}
 
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -1803,7 +1873,14 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 			reset_barrier0 = true;
 		}
 
-		self->py_device->command_list->CopyTextureRegion(&dest_location, 0, 0, 0, &src_location, NULL);
+		D3D12_BOX box = {};
+		box.left = src_x;
+		box.right = src_x + width;
+		box.top = src_y;
+		box.bottom = src_y + height;
+		box.front = src_z;
+		box.back = src_z + depth;
+		self->py_device->command_list->CopyTextureRegion(&dest_location, dst_x, dst_y, dst_z, &src_location, texture_to_texture_copy ? &box : NULL);
 	}
 
 	if (reset_barrier0)
