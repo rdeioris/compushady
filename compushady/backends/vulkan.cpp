@@ -43,9 +43,9 @@ typedef struct vulkan_Device
     VkDevice device;
     VkQueue queue;
     PyObject *name;
-    size_t dedicated_video_memory;
-    size_t dedicated_system_memory;
-    size_t shared_system_memory;
+    uint64_t dedicated_video_memory;
+    uint64_t dedicated_system_memory;
+    uint64_t shared_system_memory;
     VkPhysicalDeviceMemoryProperties mem_props;
     VkCommandPool command_pool;
     VkCommandBuffer command_buffer;
@@ -62,7 +62,7 @@ typedef struct vulkan_Heap
     PyObject_HEAD;
     vulkan_Device *py_device;
     VkDeviceMemory memory;
-    size_t size;
+    uint64_t size;
     int heap_type;
 } vulkan_Heap;
 
@@ -75,7 +75,7 @@ typedef struct vulkan_Resource
     VkImageView image_view;
     VkBufferView buffer_view;
     VkDeviceMemory memory;
-    size_t size;
+    uint64_t size;
     uint32_t stride;
     VkExtent3D image_extent;
     VkDescriptorBufferInfo descriptor_buffer_info;
@@ -83,7 +83,7 @@ typedef struct vulkan_Resource
     uint32_t row_pitch;
     VkFormat format;
     vulkan_Heap *py_heap;
-    size_t heap_offset;
+    uint64_t heap_offset;
 } vulkan_Resource;
 
 typedef struct vulkan_Compute
@@ -122,7 +122,7 @@ typedef struct vulkan_Sampler
     VkDescriptorImageInfo descriptor_image_info;
 } vulkan_Sampler;
 
-static const char *vulkan_get_spirv_entry_point(const uint32_t *words, size_t len)
+static const char *vulkan_get_spirv_entry_point(const uint32_t *words, uint64_t len)
 {
     if (len < 20) // strip SPIR-V header
         return NULL;
@@ -131,8 +131,8 @@ static const char *vulkan_get_spirv_entry_point(const uint32_t *words, size_t le
     if (words[0] != 0x07230203) // SPIR-V magic
         return NULL;
 
-    size_t offset = 5; // (20 / 4 of SPIR-V header)
-    size_t words_num = len / 4;
+    uint64_t offset = 5; // (20 / 4 of SPIR-V header)
+    uint64_t words_num = len / 4;
     while (offset < words_num)
     {
         uint32_t word = words[offset];
@@ -145,9 +145,9 @@ static const char *vulkan_get_spirv_entry_point(const uint32_t *words, size_t le
             if (size > 3)
             {
                 const char *name = (const char *)&words[offset + 3];
-                size_t max_namelen = (size - 3) * 4;
+                uint64_t max_namelen = (size - 3) * 4;
                 // check for trailing 0
-                for (size_t i = 0; i < max_namelen; i++)
+                for (uint64_t i = 0; i < max_namelen; i++)
                 {
                     if (name[i] == 0)
                         return name;
@@ -170,7 +170,7 @@ static const char *vulkan_get_spirv_entry_point(const uint32_t *words, size_t le
  *
  *
  */
-static uint32_t *vulkan_patch_spirv_unknown_uav(const uint32_t *words, size_t len, uint32_t binding)
+static uint32_t *vulkan_patch_spirv_unknown_uav(const uint32_t *words, uint64_t len, uint32_t binding)
 {
     if (len < 20) // strip SPIR-V header
         return NULL;
@@ -179,13 +179,13 @@ static uint32_t *vulkan_patch_spirv_unknown_uav(const uint32_t *words, size_t le
     if (words[0] != 0x07230203) // SPIR-V magic
         return NULL;
 
-    size_t offset = 5; // (20 / 4 of SPIR-V header)
-    size_t words_num = len / 4;
+    uint64_t offset = 5; // (20 / 4 of SPIR-V header)
+    uint64_t words_num = len / 4;
 
     bool found = false;
     uint32_t binding_id = 0;
 
-    size_t injection_offset = 0;
+    uint64_t injection_offset = 0;
 
     // first step, search for Binding
     while (offset < words_num)
@@ -843,7 +843,7 @@ static uint32_t vulkan_get_memory_type_index_by_flag(
 static PyObject *vulkan_Device_create_heap(vulkan_Device *self, PyObject *args)
 {
     int heap_type;
-    size_t size;
+    uint64_t size;
 
     if (!PyArg_ParseTuple(args, "iK", &heap_type, &size))
         return NULL;
@@ -901,11 +901,11 @@ static PyObject *vulkan_Device_create_heap(vulkan_Device *self, PyObject *args)
 static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args)
 {
     int heap_type;
-    size_t size;
+    uint64_t size;
     uint32_t stride;
     int format;
     PyObject *py_heap;
-    size_t heap_offset;
+    uint64_t heap_offset;
     if (!PyArg_ParseTuple(args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
         return NULL;
 
@@ -1095,7 +1095,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     uint32_t height;
     VkFormat format;
     PyObject *py_heap;
-    size_t heap_offset;
+    uint64_t heap_offset;
     if (!PyArg_ParseTuple(args, "IIiOK", &width, &height, &format, &py_heap, &heap_offset))
         return NULL;
 
@@ -1233,7 +1233,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     uint32_t depth;
     VkFormat format;
     PyObject *py_heap;
-    size_t heap_offset;
+    uint64_t heap_offset;
     if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
         return NULL;
 
@@ -1369,7 +1369,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     uint32_t width;
     VkFormat format;
     PyObject *py_heap;
-    size_t heap_offset;
+    uint64_t heap_offset;
     if (!PyArg_ParseTuple(args, "IiOK", &width, &format, &py_heap, &heap_offset))
         return NULL;
 
@@ -2208,7 +2208,7 @@ static PyObject *vulkan_get_discovered_devices(PyObject *self)
         py_device->name = PyUnicode_FromString(prop.deviceName);
         vkGetPhysicalDeviceMemoryProperties(device, &py_device->mem_props);
 
-        for (size_t i = 0; i < py_device->mem_props.memoryHeapCount; i++)
+        for (uint64_t i = 0; i < py_device->mem_props.memoryHeapCount; i++)
         {
             if (py_device->mem_props.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT)
             {
@@ -2253,13 +2253,13 @@ static PyMemberDef vulkan_Swapchain_members[] = {
 static PyObject *vulkan_Resource_upload(vulkan_Resource *self, PyObject *args)
 {
     Py_buffer view;
-    size_t offset = 0;
+    uint64_t offset = 0;
     if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
         return NULL;
 
-    if ((size_t)offset + view.len > self->size)
+    if ((uint64_t)offset + view.len > self->size)
     {
-        size_t size = view.len;
+        uint64_t size = view.len;
         PyBuffer_Release(&view);
         return PyErr_Format(PyExc_ValueError,
                             "supplied buffer is bigger than resource size: (offset "
@@ -2302,12 +2302,12 @@ static PyObject *vulkan_Resource_upload2d(vulkan_Resource *self, PyObject *args)
         return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
     }
 
-    size_t offset = 0;
-    size_t remains = view.len;
-    size_t resource_remains = self->size;
+    uint64_t offset = 0;
+    uint64_t remains = view.len;
+    uint64_t resource_remains = self->size;
     for (uint32_t y = 0; y < height; y++)
     {
-        size_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
+        uint64_t amount = Py_MIN(width * bytes_per_pixel, Py_MIN(remains, resource_remains));
         memcpy(mapped_data + (pitch * y), (char *)view.buf + offset, amount);
         remains -= amount;
         if (remains == 0)
@@ -2330,8 +2330,8 @@ static PyObject *vulkan_Resource_upload_chunked(vulkan_Resource *self, PyObject 
     if (!PyArg_ParseTuple(args, "y*Iy*", &view, &stride, &filler))
         return NULL;
 
-    size_t elements = view.len / stride;
-    size_t additional_bytes = elements * filler.len;
+    uint64_t elements = view.len / stride;
+    uint64_t additional_bytes = elements * filler.len;
 
     if (view.len + additional_bytes > self->size)
     {
@@ -2353,7 +2353,7 @@ static PyObject *vulkan_Resource_upload_chunked(vulkan_Resource *self, PyObject 
         return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
     }
 
-    size_t offset = 0;
+    uint64_t offset = 0;
     for (uint32_t i = 0; i < elements; i++)
     {
         memcpy(mapped_data + offset, (char *)view.buf + (i * stride), stride);
@@ -2370,8 +2370,8 @@ static PyObject *vulkan_Resource_upload_chunked(vulkan_Resource *self, PyObject 
 
 static PyObject *vulkan_Resource_readback(vulkan_Resource *self, PyObject *args)
 {
-    size_t size;
-    size_t offset;
+    uint64_t size;
+    uint64_t offset;
     if (!PyArg_ParseTuple(args, "KK", &size, &offset))
         return NULL;
 
@@ -2402,7 +2402,7 @@ static PyObject *vulkan_Resource_readback(vulkan_Resource *self, PyObject *args)
 static PyObject *vulkan_Resource_readback_to_buffer(vulkan_Resource *self, PyObject *args)
 {
     Py_buffer view;
-    size_t offset = 0;
+    uint64_t offset = 0;
     if (!PyArg_ParseTuple(args, "y*K", &view, &offset))
         return NULL;
 
@@ -2423,7 +2423,7 @@ static PyObject *vulkan_Resource_readback_to_buffer(vulkan_Resource *self, PyObj
         return PyErr_Format(PyExc_Exception, "Unable to Map VkDeviceMemory");
     }
 
-    memcpy(view.buf, mapped_data + offset, Py_MIN((size_t)view.len, self->size - offset));
+    memcpy(view.buf, mapped_data + offset, Py_MIN((uint64_t)view.len, self->size - offset));
 
     vkUnmapMemory(self->py_device->device, self->memory);
 
@@ -2495,7 +2495,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     }
 
     vulkan_Resource *dst_resource = (vulkan_Resource *)py_destination;
-    size_t dst_size = ((vulkan_Resource *)py_destination)->size;
+    uint64_t dst_size = ((vulkan_Resource *)py_destination)->size;
 
     if (size == 0)
     {

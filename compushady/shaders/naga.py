@@ -8,7 +8,11 @@ if platform.system() == "Windows":
     lib_name = "compushady_naga.dll"
 elif platform.system() == "Linux":
     if platform.machine() == "aarch64":
-        lib_name = "libcompushady_naga_aarch64.so"
+        import sys
+        if sys.maxsize > 2 ** 32:
+            lib_name = "libcompushady_naga_aarch64.so"
+        else:
+            lib_name = "libcompushady_naga_armhf.so"
     elif platform.machine() == "armv7l":
         lib_name = "libcompushady_naga_armhf.so"
     else:

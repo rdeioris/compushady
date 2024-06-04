@@ -111,6 +111,8 @@ elif platform.system() == "Linux":
         additional_files = ["backends/libdxcompiler_armhf.so", "backends/libcompushady_naga_armhf.so"]
     elif platform.machine() == "aarch64":
         additional_files = ["backends/libdxcompiler_aarch64.so", "backends/libcompushady_naga_aarch64.so"]
+        # we install the 32bit versions too, to support 32bit userspace on 64bit kernel
+        additional_files += ["backends/libdxcompiler_armhf.so", "backends/libcompushady_naga_armhf.so"]
     else:
         additional_files = ["backends/libdxcompiler_x86_64.so", "backends/libcompushady_naga_x86_64.so"]
 elif is_mac:
