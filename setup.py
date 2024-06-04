@@ -108,7 +108,7 @@ if is_windows:
     ]
 elif platform.system() == "Linux":
     if platform.machine() == "armv7l":
-        additional_files = ["backends/libdxcompiler_armv7l.so.3.7"]
+        additional_files = ["backends/libdxcompiler_armhf.so", "backends/libcompushady_naga_armhf.so"]
     elif platform.machine() == "aarch64":
         additional_files = ["backends/libdxcompiler_aarch64.so", "backends/libcompushady_naga_aarch64.so"]
     else:

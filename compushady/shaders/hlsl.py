@@ -14,7 +14,7 @@ if platform.system() == "Windows":
         ctypes.windll.kernel32.AddDllDirectory(lib_dir)
 elif platform.system() == "Linux":
     if platform.machine() == "armv7l":
-        lib_path = os.path.join(lib_dir, "libdxcompiler_armv7l.so.3.7")
+        lib_path = os.path.join(lib_dir, "libdxcompiler_armhf.so")
     elif platform.machine() == "aarch64":
         lib_path = os.path.join(lib_dir, "libdxcompiler_aarch64.so")
     else:

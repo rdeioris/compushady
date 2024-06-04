@@ -9,6 +9,8 @@ if platform.system() == "Windows":
 elif platform.system() == "Linux":
     if platform.machine() == "aarch64":
         lib_name = "libcompushady_naga_aarch64.so"
+    elif platform.machine() == "armv7l":
+        lib_name = "libcompushady_naga_armhf.so"
     else:
         lib_name = "libcompushady_naga_x86_64.so"
 elif platform.system() == "Darwin":
