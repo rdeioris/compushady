@@ -2479,7 +2479,9 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
 {
     PyObject *py_destination;
     uint64_t size;
-    if (!PyArg_ParseTuple(args, "OK", &py_destination, &size))
+    uint64_t src_offset;
+    uint64_t dst_offset;
+    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject *)&vulkan_Resource_Type);
@@ -2500,12 +2502,12 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         size = self->size;
     }
 
-    if (size > dst_size)
+    if (src_offset + size > self->size || dst_offset + size > dst_size)
     {
         return PyErr_Format(PyExc_ValueError,
                             "Resource size is bigger than destination size: %llu "
-                            "(expected no more than %llu)",
-                            size, dst_size);
+                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+                            size, dst_size, src_offset, dst_offset);
     }
 
     VkCommandBufferBeginInfo begin_info = {};
@@ -2515,6 +2517,8 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     if (self->buffer && dst_resource->buffer)
     {
         VkBufferCopy buffer_copy = {};
+        buffer_copy.srcOffset = src_offset;
+        buffer_copy.dstOffset = dst_offset;
         buffer_copy.size = size;
         vkCmdCopyBuffer(
             self->py_device->command_buffer, self->buffer, dst_resource->buffer, 1, &buffer_copy);

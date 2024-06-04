@@ -100,8 +100,8 @@ def get_best_device():
 
 
 class Resource:
-    def copy_to(self, destination, size=0):
-        self.handle.copy_to(destination.handle, size)
+    def copy_to(self, destination, size=0, src_offset=0, dst_offset=0):
+        self.handle.copy_to(destination.handle, size, src_offset, dst_offset)
 
     @property
     def size(self):

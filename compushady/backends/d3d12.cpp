@@ -1706,7 +1706,9 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 {
 	PyObject *py_destination;
 	UINT64 size;
-	if (!PyArg_ParseTuple(args, "OK", &py_destination, &size))
+	UINT64 src_offset;
+	UINT64 dst_offset;
+	if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_destination, (PyObject *)&d3d12_Resource_Type);
@@ -1727,9 +1729,12 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		size = self->size;
 	}
 
-	if (size > dst_size)
+	if (src_offset + size > self->size || dst_offset + size > dst_size)
 	{
-		return PyErr_Format(PyExc_ValueError, "Resource size is bigger than destination size: %llu (expected no more than %llu)", size, dst_size);
+		return PyErr_Format(PyExc_ValueError,
+							"Resource size is bigger than destination size: %llu "
+							"(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+							size, dst_size, src_offset, dst_offset);
 	}
 
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -1760,7 +1765,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
 			reset_barrier1 = true;
 		}
-		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, 0, self->resource, 0, size);
+		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, dst_offset, self->resource, src_offset, size);
 	}
 	else // texture copy
 	{

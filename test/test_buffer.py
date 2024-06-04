@@ -69,3 +69,32 @@ class BufferTests(unittest.TestCase):
         b0.copy_to(b1, size=32)
         b1.copy_to(b2, size=11)
         self.assertEqual(b2.readback(11), b"hello world")
+
+    def test_copy_offset(self):
+        b0 = Buffer(256, HEAP_UPLOAD)
+        b1 = Buffer(64)
+        b2 = Buffer(32, HEAP_READBACK)
+        b0.upload(b"hello world")
+        b0.copy_to(b1, size=32, dst_offset=32)
+        b1.copy_to(b2, size=11, src_offset=32)
+        self.assertEqual(b2.readback(11), b"hello world")
+
+    def test_copy_bigger_size(self):
+        b1 = Buffer(64)
+        b2 = Buffer(32)
+        self.assertRaises(ValueError, b1.copy_to, b2)
+
+    def test_copy_bigger_size_with_offset(self):
+        b1 = Buffer(64)
+        b2 = Buffer(64)
+        self.assertRaises(ValueError, b1.copy_to, b2, 64, 32, 0)
+
+    def test_copy_bigger_size_with_offset2(self):
+        b1 = Buffer(64)
+        b2 = Buffer(64)
+        self.assertRaises(ValueError, b1.copy_to, b2, 64, 0, 32)
+
+    def test_copy_bigger_size_with_size(self):
+        b1 = Buffer(64)
+        b2 = Buffer(64)
+        self.assertRaises(ValueError, b1.copy_to, b2, 65)
