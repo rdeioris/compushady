@@ -8,6 +8,10 @@
 #include <comdef.h>
 #endif
 
+#ifdef __APPLE__
+#define __EMULATE_UUID 1
+#endif
+
 #include "dxcapi.h"
 
 #include "compushady.h"
