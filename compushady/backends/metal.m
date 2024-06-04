@@ -473,8 +473,92 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     Py_RETURN_NONE;
 }
 
+static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* args)
+{
+
+    PyObject *py_indirect_buffer;
+    uint32_t offset;
+    if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+        return NULL;
+
+    int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    metal_Resource *py_resource = (metal_Resource *)py_indirect_buffer;
+    if (!py_resource->buffer)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+    }
+
+    id<MTLCommandBuffer> compute_command_buffer = [self->py_device->command_queue commandBuffer];
+    id<MTLComputeCommandEncoder> compute_command_encoder =
+        [compute_command_buffer computeCommandEncoder];
+
+    [compute_command_encoder setComputePipelineState:self->compute_pipeline_state];
+
+    uint32_t buffer_index = 0;
+    uint32_t texture_index = 0;
+    uint32_t sampler_index = 0;
+
+    for (size_t i = 0; i < self->cbv.size(); i++)
+    {
+        metal_Resource* py_resource = self->cbv[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->srv.size(); i++)
+    {
+        metal_Resource* py_resource = self->srv[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->uav.size(); i++)
+    {
+        metal_Resource* py_resource = self->uav[i];
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
+    }
+
+    for (size_t i = 0; i < self->samplers.size(); i++)
+    {
+        metal_Sampler* py_sampler = self->samplers[i];
+        [compute_command_encoder setSamplerState:py_sampler->sampler atIndex:sampler_index++];
+    }
+
+    [compute_command_encoder
+         dispatchThreadgroupsWithIndirectBuffer:py_resource->buffer indirectBufferOffset:offset
+        threadsPerThreadgroup:MTLSizeMake(self->py_mtl_function->x, self->py_mtl_function->y,
+                                  self->py_mtl_function->z)];
+
+    [compute_command_encoder endEncoding];
+
+    [compute_command_buffer commit];
+    [compute_command_buffer waitUntilCompleted];
+
+    [compute_command_encoder release];
+    [compute_command_buffer release];
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef metal_Compute_methods[] = {
     { "dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline" },
+    { "dispatch_indirect", (PyCFunction)metal_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline" },
     { NULL, NULL, 0, NULL } /* Sentinel */
 };
 
@@ -1459,7 +1543,10 @@ static PyObject* metal_Resource_readback_to_buffer(metal_Resource* self, PyObjec
 static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
 {
     PyObject* py_destination;
-    if (!PyArg_ParseTuple(args, "O", &py_destination))
+    uint64_t size;
+    uint64_t src_offset;
+    uint64_t dst_offset;
+    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
@@ -1472,14 +1559,20 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
         return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
     }
 
+    if (size == 0)
+    {
+        size = self->size;
+    }
+
     metal_Resource* dst_resource = (metal_Resource*)py_destination;
     size_t dst_size = ((metal_Resource*)py_destination)->size;
 
-    if (self->size > dst_size)
+    if (src_offset + size > self->size || dst_offset + size > dst_size)
     {
         return PyErr_Format(PyExc_ValueError,
-            "Resource size is bigger than destination size: %llu (expected no more than %llu)",
-            self->size, dst_size);
+                            "Resource size is bigger than destination size: %llu "
+                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+                            size, dst_size, src_offset, dst_offset);
     }
 
     id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
@@ -1488,15 +1581,15 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     if (self->buffer && dst_resource->buffer)
     {
         [blit_command_encoder copyFromBuffer:self->buffer
-                                sourceOffset:0
+                                sourceOffset:src_offset
                                     toBuffer:dst_resource->buffer
-                           destinationOffset:0
-                                        size:self->size];
+                           destinationOffset:dst_offset
+                                        size:size];
     }
     else if (self->buffer) // buffer to image
     {
         [blit_command_encoder copyFromBuffer:self->buffer
-                                sourceOffset:0
+                                sourceOffset:src_offset
                            sourceBytesPerRow:dst_resource->row_pitch
                          sourceBytesPerImage:dst_resource->row_pitch * dst_resource->height
                                   sourceSize:MTLSizeMake(dst_resource->width, dst_resource->height,
@@ -1514,7 +1607,7 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
                                  sourceOrigin:MTLOriginMake(0, 0, 0)
                                    sourceSize:MTLSizeMake(self->width, self->height, self->depth)
                                      toBuffer:dst_resource->buffer
-                            destinationOffset:0
+                            destinationOffset:dst_offset
                        destinationBytesPerRow:self->row_pitch
                      destinationBytesPerImage:self->row_pitch * self->height];
     }

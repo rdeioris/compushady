@@ -77,6 +77,7 @@ typedef struct d3d12_Compute
 	ID3D12RootSignature *root_signature;
 	ID3D12DescriptorHeap *descriptor_heaps[2];
 	ID3D12PipelineState *pipeline;
+	ID3D12CommandSignature *command_signature;
 } d3d12_Compute;
 
 static PyMemberDef d3d12_Device_members[] = {
@@ -354,7 +355,8 @@ static PyTypeObject d3d12_Swapchain_Type = {
 
 static void d3d12_Compute_dealloc(d3d12_Compute *self)
 {
-
+	if (self->command_signature)
+		self->command_signature->Release();
 	if (self->pipeline)
 		self->pipeline->Release();
 	if (self->descriptor_heaps[0])
@@ -1118,7 +1120,7 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	if (depth == 0)
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid depth");
-	}	
+	}
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
 	{
@@ -1467,6 +1469,19 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 
 	PyBuffer_Release(&view);
 
+	D3D12_INDIRECT_ARGUMENT_DESC indirect_argument_desc = {};
+	indirect_argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+	D3D12_COMMAND_SIGNATURE_DESC command_signature_desc = {};
+	command_signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+	command_signature_desc.NumArgumentDescs = 1;
+	command_signature_desc.pArgumentDescs = &indirect_argument_desc;
+	hr = py_device->device->CreateCommandSignature(&command_signature_desc, NULL, __uuidof(ID3D12CommandSignature), (void **)&py_compute->command_signature);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_compute);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Command Signature");
+	}
+
 	return (PyObject *)py_compute;
 }
 
@@ -1690,7 +1705,10 @@ static PyObject *d3d12_Resource_readback_to_buffer(d3d12_Resource *self, PyObjec
 static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 {
 	PyObject *py_destination;
-	if (!PyArg_ParseTuple(args, "O", &py_destination))
+	UINT64 size;
+	UINT64 src_offset;
+	UINT64 dst_offset;
+	if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_destination, (PyObject *)&d3d12_Resource_Type);
@@ -1706,9 +1724,17 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	d3d12_Resource *dst_resource = (d3d12_Resource *)py_destination;
 	SIZE_T dst_size = ((d3d12_Resource *)py_destination)->size;
 
-	if (self->size > dst_size)
+	if (size == 0)
 	{
-		return PyErr_Format(PyExc_ValueError, "Resource size is bigger than destination size: %llu (expected no more than %llu)", self->size, dst_size);
+		size = self->size;
+	}
+
+	if (src_offset + size > self->size || dst_offset + size > dst_size)
+	{
+		return PyErr_Format(PyExc_ValueError,
+							"Resource size is bigger than destination size: %llu "
+							"(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+							size, dst_size, src_offset, dst_offset);
 	}
 
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -1739,7 +1765,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
 			reset_barrier1 = true;
 		}
-		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, 0, self->resource, 0, self->size);
+		self->py_device->command_list->CopyBufferRegion(dst_resource->resource, dst_offset, self->resource, src_offset, size);
 	}
 	else // texture copy
 	{
@@ -1749,6 +1775,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			dest_location.PlacedFootprint = self->footprint;
+			dest_location.PlacedFootprint.Offset = dst_offset;
 		}
 		else
 		{
@@ -1765,6 +1792,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
 			src_location.PlacedFootprint = dst_resource->footprint;
+			src_location.PlacedFootprint.Offset = src_offset;
 		}
 		else
 		{
@@ -1845,8 +1873,54 @@ static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
+static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *args)
+{
+	PyObject *py_indirect_buffer;
+	UINT offset;
+	if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+		return NULL;
+
+	int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&d3d12_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+
+	d3d12_Resource *py_resource = (d3d12_Resource *)py_indirect_buffer;
+	if (py_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+	}
+
+	self->py_device->command_allocator->Reset();
+	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
+	self->py_device->command_list->SetDescriptorHeaps(self->descriptor_heaps[1] ? 2 : 1, self->descriptor_heaps);
+	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
+	self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
+	if (self->descriptor_heaps[1])
+	{
+		self->py_device->command_list->SetComputeRootDescriptorTable(1, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+	}
+	self->py_device->command_list->ExecuteIndirect(self->command_signature, 1, py_resource->resource, offset, NULL, 0);
+	self->py_device->command_list->Close();
+
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList **)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
+
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef d3d12_Compute_methods[] = {
 	{"dispatch", (PyCFunction)d3d12_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
+	{"dispatch_indirect", (PyCFunction)d3d12_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 

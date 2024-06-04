@@ -639,7 +639,7 @@ static PyObject *vulkan_instance_check()
         {
             extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
 #ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-	    extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
 #endif
 #else
         if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
@@ -683,7 +683,7 @@ static PyObject *vulkan_instance_check()
         instance_create_info.ppEnabledLayerNames = layers.data();
 #ifdef __APPLE__
 #ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-	instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+        instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
 #endif
 #endif
 
@@ -928,7 +928,7 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_create_info.size = size;
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
+    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 
     VkMemoryPropertyFlagBits mem_flag = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -2478,7 +2478,10 @@ static PyObject *vulkan_Resource_readback2d(vulkan_Resource *self, PyObject *arg
 static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
 {
     PyObject *py_destination;
-    if (!PyArg_ParseTuple(args, "O", &py_destination))
+    uint64_t size;
+    uint64_t src_offset;
+    uint64_t dst_offset;
+    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject *)&vulkan_Resource_Type);
@@ -2494,12 +2497,17 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     vulkan_Resource *dst_resource = (vulkan_Resource *)py_destination;
     size_t dst_size = ((vulkan_Resource *)py_destination)->size;
 
-    if (self->size > dst_size)
+    if (size == 0)
+    {
+        size = self->size;
+    }
+
+    if (src_offset + size > self->size || dst_offset + size > dst_size)
     {
         return PyErr_Format(PyExc_ValueError,
                             "Resource size is bigger than destination size: %llu "
-                            "(expected no more than %llu)",
-                            self->size, dst_size);
+                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+                            size, dst_size, src_offset, dst_offset);
     }
 
     VkCommandBufferBeginInfo begin_info = {};
@@ -2509,7 +2517,9 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     if (self->buffer && dst_resource->buffer)
     {
         VkBufferCopy buffer_copy = {};
-        buffer_copy.size = self->size;
+        buffer_copy.srcOffset = src_offset;
+        buffer_copy.dstOffset = dst_offset;
+        buffer_copy.size = size;
         vkCmdCopyBuffer(
             self->py_device->command_buffer, self->buffer, dst_resource->buffer, 1, &buffer_copy);
     }
@@ -2530,6 +2540,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         buffer_image_copy.imageSubresource.layerCount = 1;
         buffer_image_copy.imageExtent = dst_resource->image_extent;
+        buffer_image_copy.bufferOffset = src_offset;
         vkCmdCopyBufferToImage(self->py_device->command_buffer, self->buffer, dst_resource->image,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy);
         image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -2554,6 +2565,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         buffer_image_copy.imageSubresource.layerCount = 1;
         buffer_image_copy.imageExtent = self->image_extent;
+        buffer_image_copy.bufferOffset = dst_offset;
         vkCmdCopyImageToBuffer(self->py_device->command_buffer, self->image,
                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->buffer, 1, &buffer_image_copy);
         image_memory_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -2795,9 +2807,63 @@ static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
     return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
 }
 
+static PyObject *vulkan_Compute_dispatch_indirect(vulkan_Compute *self, PyObject *args)
+{
+    PyObject *py_indirect_buffer;
+    uint32_t offset;
+    if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+        return NULL;
+
+    int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&vulkan_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    vulkan_Resource *py_resource = (vulkan_Resource *)py_indirect_buffer;
+    if (!py_resource->buffer)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+    }
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    vkBeginCommandBuffer(self->py_device->command_buffer, &begin_info);
+
+    vkCmdBindPipeline(
+        self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, self->pipeline);
+    vkCmdBindDescriptorSets(self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            self->pipeline_layout, 0, 1, &self->descriptor_set, 0, nullptr);
+    vkCmdDispatchIndirect(self->py_device->command_buffer, py_resource->buffer, offset);
+    vkEndCommandBuffer(self->py_device->command_buffer);
+
+    VkSubmitInfo submit_info = {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.pCommandBuffers = &self->py_device->command_buffer;
+    submit_info.commandBufferCount = 1;
+
+    VkResult result = vkQueueSubmit(self->py_device->queue, 1, &submit_info, VK_NULL_HANDLE);
+
+    if (result == VK_SUCCESS)
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        vkQueueWaitIdle(self->py_device->queue);
+        Py_END_ALLOW_THREADS;
+        Py_RETURN_NONE;
+    }
+
+    return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
+}
+
 static PyMethodDef vulkan_Compute_methods[] = {
     {"dispatch", (PyCFunction)vulkan_Compute_dispatch, METH_VARARGS,
      "Execute a Compute Pipeline"},
+    {"dispatch_indirect", (PyCFunction)vulkan_Compute_dispatch_indirect, METH_VARARGS,
+     "Execute an Indirect Compute Pipeline"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
