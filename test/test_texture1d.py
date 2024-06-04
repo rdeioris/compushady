@@ -39,7 +39,7 @@ class Texture1DTests(unittest.TestCase):
 
     def test_copy_with_offset(self):
         t0 = Texture1D(2, R32_UINT)
-        b0 = Buffer(64, HEAP_UPLOAD)
+        b0 = Buffer(t0.size * 2, HEAP_UPLOAD)
         b0.upload(struct.pack("<III", 1, 2, 3))
         b0.copy_to(t0, size=t0.size)
         b0.copy_to(t0, size=t0.size, src_offset=4)

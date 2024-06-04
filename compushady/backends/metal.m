@@ -1544,7 +1544,9 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
 {
     PyObject* py_destination;
     uint64_t size;
-    if (!PyArg_ParseTuple(args, "OK", &py_destination, &size))
+    uint64_t src_offset;
+    uint64_t dst_offset;
+    if (!PyArg_ParseTuple(args, "OKKK", &py_destination, &size, &src_offset, &dst_offset))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
@@ -1565,11 +1567,12 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     metal_Resource* dst_resource = (metal_Resource*)py_destination;
     size_t dst_size = ((metal_Resource*)py_destination)->size;
 
-    if (size > dst_size)
+    if (src_offset + size > self->size || dst_offset + size > dst_size)
     {
         return PyErr_Format(PyExc_ValueError,
-            "Resource size is bigger than destination size: %llu (expected no more than %llu)",
-            size, dst_size);
+                            "Resource size is bigger than destination size: %llu "
+                            "(expected no more than %llu) (src_offset: %llu dst_offset: %llu)",
+                            size, dst_size, src_offset, dst_offset);
     }
 
     id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
@@ -1578,15 +1581,15 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     if (self->buffer && dst_resource->buffer)
     {
         [blit_command_encoder copyFromBuffer:self->buffer
-                                sourceOffset:0
+                                sourceOffset:src_offset
                                     toBuffer:dst_resource->buffer
-                           destinationOffset:0
+                           destinationOffset:dst_offset
                                         size:size];
     }
     else if (self->buffer) // buffer to image
     {
         [blit_command_encoder copyFromBuffer:self->buffer
-                                sourceOffset:0
+                                sourceOffset:src_offset
                            sourceBytesPerRow:dst_resource->row_pitch
                          sourceBytesPerImage:dst_resource->row_pitch * dst_resource->height
                                   sourceSize:MTLSizeMake(dst_resource->width, dst_resource->height,
@@ -1604,7 +1607,7 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
                                  sourceOrigin:MTLOriginMake(0, 0, 0)
                                    sourceSize:MTLSizeMake(self->width, self->height, self->depth)
                                      toBuffer:dst_resource->buffer
-                            destinationOffset:0
+                            destinationOffset:dst_offset
                        destinationBytesPerRow:self->row_pitch
                      destinationBytesPerImage:self->row_pitch * self->height];
     }
