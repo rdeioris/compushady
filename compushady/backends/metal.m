@@ -1543,7 +1543,8 @@ static PyObject* metal_Resource_readback_to_buffer(metal_Resource* self, PyObjec
 static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
 {
     PyObject* py_destination;
-    if (!PyArg_ParseTuple(args, "O", &py_destination))
+    uint64_t size;
+    if (!PyArg_ParseTuple(args, "OK", &py_destination, &size))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
@@ -1556,14 +1557,19 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
         return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
     }
 
+    if (size == 0)
+    {
+        size = self->size;
+    }
+
     metal_Resource* dst_resource = (metal_Resource*)py_destination;
     size_t dst_size = ((metal_Resource*)py_destination)->size;
 
-    if (self->size > dst_size)
+    if (size > dst_size)
     {
         return PyErr_Format(PyExc_ValueError,
             "Resource size is bigger than destination size: %llu (expected no more than %llu)",
-            self->size, dst_size);
+            size, dst_size);
     }
 
     id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
@@ -1575,7 +1581,7 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
                                 sourceOffset:0
                                     toBuffer:dst_resource->buffer
                            destinationOffset:0
-                                        size:self->size];
+                                        size:size];
     }
     else if (self->buffer) // buffer to image
     {
