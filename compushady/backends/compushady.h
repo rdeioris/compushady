@@ -5,7 +5,7 @@
 
 #define COMPUSHADY_CLEAR(x) memset(((char *)x) + sizeof(PyObject), 0, sizeof(*x) - sizeof(PyObject))
 
-#define COMPUSHADY_ALIGN(x, alignment) ((x + alignment -1) / alignment) * alignment
+#define COMPUSHADY_ALIGN(x, alignment) ((x + alignment - 1) / alignment) * alignment
 
 #define COMPUSHADY_HEAP_DEFAULT 0
 #define COMPUSHADY_HEAP_UPLOAD 1
@@ -67,38 +67,38 @@
 #define B8G8R8A8_UNORM 87
 #define B8G8R8A8_UNORM_SRGB 91
 
-extern PyObject* Compushady_BufferError;
-extern PyObject* Compushady_Texture1DError;
-extern PyObject* Compushady_Texture2DError;
-extern PyObject* Compushady_Texture3DError;
-extern PyObject* Compushady_SamplerError;
-extern PyObject* Compushady_HeapError;
+extern PyObject *Compushady_BufferError;
+extern PyObject *Compushady_Texture1DError;
+extern PyObject *Compushady_Texture2DError;
+extern PyObject *Compushady_Texture3DError;
+extern PyObject *Compushady_SamplerError;
+extern PyObject *Compushady_HeapError;
 
-
-PyObject* compushady_backend_init(PyModuleDef* py_module_def,
-	PyTypeObject* device_type, PyMemberDef* device_members, PyMethodDef* device_methods,
-	PyTypeObject* resource_type, PyMemberDef* resource_members, PyMethodDef* resource_methods,
-	PyTypeObject* swapchain_type, PyMemberDef* swapchain_members, PyMethodDef* swapchain_methods,
-	PyTypeObject* compute_type, PyMemberDef* compute_members, PyMethodDef* compute_methods,
-	PyTypeObject* sampler_type, PyMemberDef* sampler_members, PyMethodDef* sampler_methods,
-	PyTypeObject* heap_type, PyMemberDef* heap_members, PyMethodDef* heap_methods
-);
+PyObject *compushady_backend_init(PyModuleDef *py_module_def,
+								  PyTypeObject *device_type, PyMemberDef *device_members, PyMethodDef *device_methods,
+								  PyTypeObject *resource_type, PyMemberDef *resource_members, PyMethodDef *resource_methods,
+								  PyTypeObject *swapchain_type, PyMemberDef *swapchain_members, PyMethodDef *swapchain_methods,
+								  PyTypeObject *compute_type, PyMemberDef *compute_members, PyMethodDef *compute_methods,
+								  PyTypeObject *sampler_type, PyMemberDef *sampler_members, PyMethodDef *sampler_methods,
+								  PyTypeObject *heap_type, PyMemberDef *heap_members, PyMethodDef *heap_methods);
 
 size_t compushady_get_size_by_pitch(const size_t pitch, const size_t width, const size_t height, const size_t depth, const size_t bytes_per_pixel);
 
-template<typename T, typename U>
-bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_cbv, std::vector<T*>& cbv, PyObject* py_srv, std::vector<T*>& srv, PyObject* py_uav, std::vector<T*>& uav, PyTypeObject* py_sampler_type, PyObject* py_samplers, std::vector<U*>& samplers)
+bool compushady_check_copy_to(const bool src_is_buffer, const bool dst_is_buffer, const uint64_t size, const uint64_t src_offset, const uint64_t dst_offset, const uint64_t src_size, const uint64_t dst_size, const uint32_t src_x, const uint32_t src_y, const uint32_t src_z, const uint32_t src_slice, const uint32_t src_slices, const uint32_t dst_slice, const uint32_t dst_slices, const uint32_t src_width, const uint32_t src_height, const uint32_t src_depth, const uint32_t dst_width, const uint32_t dst_height, const uint32_t dst_depth, uint32_t *dst_x, uint32_t *dst_y, uint32_t *dst_z, uint32_t *width, uint32_t *height, uint32_t *depth);
+
+template <typename T, typename U>
+bool compushady_check_descriptors(PyTypeObject *py_resource_type, PyObject *py_cbv, std::vector<T *> &cbv, PyObject *py_srv, std::vector<T *> &srv, PyObject *py_uav, std::vector<T *> &uav, PyTypeObject *py_sampler_type, PyObject *py_samplers, std::vector<U *> &samplers)
 {
 	if (py_cbv)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_cbv);
+		PyObject *py_iter = PyObject_GetIter(py_cbv);
 		if (!py_iter)
 		{
 			return false;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)py_resource_type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -112,7 +112,7 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 				return false;
 			}
-			cbv.push_back((T*)py_item);
+			cbv.push_back((T *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -120,14 +120,14 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 
 	if (py_srv)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_srv);
+		PyObject *py_iter = PyObject_GetIter(py_srv);
 		if (!py_iter)
 		{
 			return false;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)py_resource_type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -141,7 +141,7 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 				return false;
 			}
-			srv.push_back((T*)py_item);
+			srv.push_back((T *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -149,14 +149,14 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 
 	if (py_uav)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_uav);
+		PyObject *py_iter = PyObject_GetIter(py_uav);
 		if (!py_iter)
 		{
 			return false;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_resource_type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)py_resource_type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -170,7 +170,7 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 				return false;
 			}
-			uav.push_back((T*)py_item);
+			uav.push_back((T *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);
@@ -178,14 +178,14 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 
 	if (py_samplers)
 	{
-		PyObject* py_iter = PyObject_GetIter(py_samplers);
+		PyObject *py_iter = PyObject_GetIter(py_samplers);
 		if (!py_iter)
 		{
 			return false;
 		}
-		while (PyObject* py_item = PyIter_Next(py_iter))
+		while (PyObject *py_item = PyIter_Next(py_iter))
 		{
-			int ret = PyObject_IsInstance(py_item, (PyObject*)py_sampler_type);
+			int ret = PyObject_IsInstance(py_item, (PyObject *)py_sampler_type);
 			if (ret < 0)
 			{
 				Py_DECREF(py_item);
@@ -199,7 +199,7 @@ bool compushady_check_descriptors(PyTypeObject* py_resource_type, PyObject* py_c
 				PyErr_Format(PyExc_ValueError, "Expected a Resource object");
 				return false;
 			}
-			samplers.push_back((U*)py_item);
+			samplers.push_back((U *)py_item);
 			Py_DECREF(py_item);
 		}
 		Py_DECREF(py_iter);

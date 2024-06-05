@@ -52,6 +52,8 @@ typedef struct d3d12_Resource
 	D3D12_RESOURCE_DIMENSION dimension;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
 	d3d12_Heap *py_heap;
+	UINT slices;
+	SIZE_T heap_size;
 } d3d12_Resource;
 
 typedef struct d3d12_Swapchain
@@ -100,6 +102,8 @@ static PyMemberDef d3d12_Resource_members[] = {
 	{"height", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Height), 0, "resource height"},
 	{"depth", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Depth), 0, "resource depth"},
 	{"row_pitch", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.RowPitch), 0, "resource row pitch"},
+	{"slices", T_UINT, offsetof(d3d12_Resource, slices), 0, "resource number of slices"},
+	{"heap_size", T_ULONGLONG, offsetof(d3d12_Resource, heap_size), 0, "resource heap size"},
 	{NULL} /* Sentinel */
 };
 
@@ -710,6 +714,8 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	ID3D12Resource1 *resource;
 	HRESULT hr;
 
+	D3D12_RESOURCE_ALLOCATION_INFO allocation_info = py_device->device->GetResourceAllocationInfo(0, 1, (D3D12_RESOURCE_DESC *)&resource_desc);
+
 	bool has_heap = false;
 
 	if (py_heap && py_heap != Py_None)
@@ -736,12 +742,12 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 			return PyErr_Format(Compushady_BufferError, "Unsupported heap type");
 		}
 
-		if (heap_offset + size > py_d3d12_heap->size)
+		if (heap_offset + allocation_info.SizeInBytes > py_d3d12_heap->size)
 		{
 			return PyErr_Format(Compushady_BufferError,
 								"supplied heap is not big enough for the resource size: (offset %llu) %llu "
 								"(required %llu)",
-								heap_offset, py_d3d12_heap->size, size);
+								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
 		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
@@ -772,6 +778,8 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	py_resource->dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	py_resource->stride = stride;
 	py_resource->format = format;
+	py_resource->slices = 1;
+	py_resource->heap_size = allocation_info.SizeInBytes;
 
 	if (has_heap)
 	{
@@ -788,12 +796,18 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	DXGI_FORMAT format;
 	PyObject *py_heap;
 	SIZE_T heap_offset;
-	if (!PyArg_ParseTuple(args, "IiOK", &width, &format, &py_heap, &heap_offset))
+	UINT slices;
+	if (!PyArg_ParseTuple(args, "IiOKI", &width, &format, &py_heap, &heap_offset, &slices))
 		return NULL;
 
 	if (width == 0)
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid width");
+	}
+
+	if (slices == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid number of slices");
 	}
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
@@ -814,7 +828,7 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
 	resource_desc.Width = width;
 	resource_desc.Height = 1;
-	resource_desc.DepthOrArraySize = 1;
+	resource_desc.DepthOrArraySize = slices;
 	resource_desc.MipLevels = 1;
 	resource_desc.Format = format;
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -824,6 +838,8 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
 	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC *)&resource_desc, 0, 1, 0, &footprint, NULL, NULL, &texture_size);
+
+	D3D12_RESOURCE_ALLOCATION_INFO allocation_info = py_device->device->GetResourceAllocationInfo(0, 1, (D3D12_RESOURCE_DESC *)&resource_desc);
 
 	ID3D12Resource1 *resource;
 	HRESULT hr;
@@ -853,12 +869,12 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 			return PyErr_Format(Compushady_Texture1DError, "Unsupported heap type %d != %d", py_d3d12_heap->heap_type, heap_properties.Type);
 		}
 
-		if (heap_offset + texture_size > py_d3d12_heap->size)
+		if (heap_offset + allocation_info.SizeInBytes > py_d3d12_heap->size)
 		{
 			return PyErr_Format(Compushady_Texture1DError,
 								"supplied heap is not big enough for the resource size: (offset %llu) %llu "
 								"(required %llu)",
-								heap_offset, py_d3d12_heap->size, texture_size);
+								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
 		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
@@ -889,6 +905,8 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
+	py_resource->slices = slices;
+	py_resource->heap_size = allocation_info.SizeInBytes;
 
 	if (has_heap)
 	{
@@ -982,7 +1000,8 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	DXGI_FORMAT format;
 	PyObject *py_heap;
 	SIZE_T heap_offset;
-	if (!PyArg_ParseTuple(args, "IIiOK", &width, &height, &format, &py_heap, &heap_offset))
+	UINT slices;
+	if (!PyArg_ParseTuple(args, "IIiOKI", &width, &height, &format, &py_heap, &heap_offset, &slices))
 		return NULL;
 
 	if (width == 0)
@@ -993,6 +1012,11 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	if (height == 0)
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid height");
+	}
+
+	if (slices == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid number of slices");
 	}
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
@@ -1013,7 +1037,7 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 	resource_desc.Width = width;
 	resource_desc.Height = height;
-	resource_desc.DepthOrArraySize = 1;
+	resource_desc.DepthOrArraySize = slices;
 	resource_desc.MipLevels = 1;
 	resource_desc.Format = format;
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
@@ -1023,6 +1047,8 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
 	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC *)&resource_desc, 0, 1, 0, &footprint, NULL, NULL, &texture_size);
+
+	D3D12_RESOURCE_ALLOCATION_INFO allocation_info = py_device->device->GetResourceAllocationInfo(0, 1, (D3D12_RESOURCE_DESC *)&resource_desc);
 
 	ID3D12Resource1 *resource;
 	HRESULT hr;
@@ -1052,12 +1078,12 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 			return PyErr_Format(Compushady_Texture2DError, "Unsupported heap type");
 		}
 
-		if (heap_offset + texture_size > py_d3d12_heap->size)
+		if (heap_offset + allocation_info.SizeInBytes > py_d3d12_heap->size)
 		{
 			return PyErr_Format(Compushady_Texture2DError,
 								"supplied heap is not big enough for the resource size: (offset %llu) %llu "
 								"(required %llu)",
-								heap_offset, py_d3d12_heap->size, texture_size);
+								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
 		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
@@ -1088,6 +1114,8 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
+	py_resource->slices = slices;
+	py_resource->heap_size = allocation_info.SizeInBytes;
 
 	if (has_heap)
 	{
@@ -1153,6 +1181,8 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
 	py_device->device->GetCopyableFootprints((D3D12_RESOURCE_DESC *)&resource_desc, 0, 1, 0, &footprint, NULL, NULL, &texture_size);
 
+	D3D12_RESOURCE_ALLOCATION_INFO allocation_info = py_device->device->GetResourceAllocationInfo(0, 1, (D3D12_RESOURCE_DESC *)&resource_desc);
+
 	ID3D12Resource1 *resource;
 	HRESULT hr;
 	bool has_heap = false;
@@ -1181,12 +1211,12 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 			return PyErr_Format(Compushady_Texture3DError, "Unsupported heap type");
 		}
 
-		if (heap_offset + texture_size > py_d3d12_heap->size)
+		if (heap_offset + allocation_info.SizeInBytes > py_d3d12_heap->size)
 		{
 			return PyErr_Format(Compushady_Texture3DError,
 								"supplied heap is not big enough for the resource size: (offset %llu) %llu "
 								"(required %llu)",
-								heap_offset, py_d3d12_heap->size, texture_size);
+								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
 		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
@@ -1217,6 +1247,8 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	py_resource->dimension = resource_desc.Dimension;
 	py_resource->stride = 0;
 	py_resource->format = format;
+	py_resource->slices = 1;
+	py_resource->heap_size = allocation_info.SizeInBytes;
 
 	if (has_heap)
 	{
@@ -1753,7 +1785,9 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	UINT dst_x;
 	UINT dst_y;
 	UINT dst_z;
-	if (!PyArg_ParseTuple(args, "OKKKIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z))
+	UINT src_slice;
+	UINT dst_slice;
+	if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_destination, (PyObject *)&d3d12_Resource_Type);
@@ -1767,80 +1801,21 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	}
 
 	d3d12_Resource *dst_resource = (d3d12_Resource *)py_destination;
-	SIZE_T dst_size = ((d3d12_Resource *)py_destination)->size;
 
 	if (size == 0)
 	{
 		size = self->size;
 	}
 
-	bool texture_to_texture_copy = false;
-	// buffer to buffer
-	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+	bool texture_to_texture_copy = (self->dimension != D3D12_RESOURCE_DIMENSION_BUFFER) && (dst_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+	if (!compushady_check_copy_to(self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER,
+								  dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER, size, src_offset, dst_offset, self->size, dst_resource->size,
+								  src_x, src_y, src_z, src_slice, self->slices, dst_slice, dst_resource->slices,
+								  self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth,
+								  dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth,
+								  &dst_x, &dst_y, &dst_z, &width, &height, &depth))
 	{
-		if (src_offset + size > self->size || dst_offset + size > dst_size)
-		{
-			return PyErr_Format(PyExc_ValueError,
-								"Resource requested size to copy (%llu) is out of bounds "
-								"(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_offset: %llu)",
-								size, self->size, src_offset, dst_size, dst_offset);
-		}
-	}
-	// buffer to texture
-	else if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
-	{
-		dst_x = 0;
-		dst_y = 0;
-		dst_z = 0;
-		if (src_offset + size > self->size || size < dst_size)
-		{
-			return PyErr_Format(PyExc_ValueError,
-								"Resource requested size to copy (%llu) is out of bounds "
-								"(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_width: %u, dst_height: %u, dst_depth: %u)",
-								size, size, src_offset, dst_resource->size, dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth);
-		}
-	}
-	// texture to buffer
-	else if (self->dimension != D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
-	{
-		dst_x = 0;
-		dst_y = 0;
-		dst_z = 0;
-		if (dst_offset + size > dst_size || size < self->size)
-		{
-			return PyErr_Format(PyExc_ValueError,
-								"Resource requested size to copy (%llu) is out of bounds "
-								"(dst_size: %llu, dst_offset: %llu, src_size: %llu, src_width: %u, src_height: %u, src_depth: %u)",
-								size, dst_size, src_offset, dst_resource->size, self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth);
-		}
-	}
-	// texture to texture
-	else
-	{
-		if (width == 0)
-		{
-			width = self->footprint.Footprint.Width;
-		}
-
-		if (height == 0)
-		{
-			height = self->footprint.Footprint.Height;
-		}
-
-		if (depth == 0)
-		{
-			depth = self->footprint.Footprint.Depth;
-		}
-
-		if (src_x + width > self->footprint.Footprint.Width || src_y + height > self->footprint.Footprint.Height || src_z + depth > self->footprint.Footprint.Depth || dst_x + width > dst_resource->footprint.Footprint.Width || dst_y + height > dst_resource->footprint.Footprint.Height || dst_z + depth > dst_resource->footprint.Footprint.Depth)
-		{
-			return PyErr_Format(PyExc_ValueError,
-								"Resource requested size to copy (width: %u, height: %u, depth: %u) is out of bounds "
-								"(src_width: %u, src_height: %u, src_depth: %u, dst_width: %u, dst_height: %u, dst_depth: %u)",
-								width, height, depth, self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth, dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth);
-		}
-
-		texture_to_texture_copy = true;
+		return NULL;
 	}
 
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
@@ -1887,8 +1862,10 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+			barriers[1].Transition.Subresource = dst_slice;
 			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			dest_location.SubresourceIndex = dst_slice;
 			reset_barrier1 = true;
 		}
 
@@ -1904,8 +1881,10 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		{
 			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			barriers[0].Transition.Subresource = src_slice;
 			self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+			src_location.SubresourceIndex = src_slice;
 			reset_barrier0 = true;
 		}
 

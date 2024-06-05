@@ -115,6 +115,8 @@ class Resource:
         dst_x=0,
         dst_y=0,
         dst_z=0,
+        src_slice=0,
+        dst_slice=0,
     ):
         self.handle.copy_to(
             destination.handle,
@@ -130,11 +132,17 @@ class Resource:
             dst_x,
             dst_y,
             dst_z,
+            src_slice,
+            dst_slice,
         )
 
     @property
     def size(self):
         return self.handle.size
+
+    @property
+    def heap_size(self):
+        return self.handle.heap_size
 
 
 class Buffer(Resource):
@@ -173,11 +181,11 @@ class Buffer(Resource):
 
 
 class Texture1D(Resource):
-    def __init__(self, width, format, heap=None, heap_offset=0, device=None):
+    def __init__(self, width, format, heap=None, heap_offset=0, slices=1, device=None):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_texture1d(
-            width, format, heap.handle if heap else None, heap_offset
+            width, format, heap.handle if heap else None, heap_offset, slices
         )
 
     @property
@@ -185,16 +193,22 @@ class Texture1D(Resource):
         return self.handle.width
 
     @property
+    def slices(self):
+        return self.handle.slices
+
+    @property
     def row_pitch(self):
         return self.handle.row_pitch
 
 
 class Texture2D(Resource):
-    def __init__(self, width, height, format, heap=None, heap_offset=0, device=None):
+    def __init__(
+        self, width, height, format, heap=None, heap_offset=0, slices=1, device=None
+    ):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_texture2d(
-            width, height, format, heap.handle if heap else None, heap_offset
+            width, height, format, heap.handle if heap else None, heap_offset, slices
         )
 
     @property
@@ -204,6 +218,10 @@ class Texture2D(Resource):
     @property
     def height(self):
         return self.handle.height
+
+    @property
+    def slices(self):
+        return self.handle.slices
 
     @property
     def row_pitch(self):
