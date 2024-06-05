@@ -100,6 +100,7 @@ typedef struct vulkan_Compute
     PyObject *py_srv_list;
     PyObject *py_uav_list;
     PyObject *py_samplers_list;
+    uint32_t push_constant_size;
 } vulkan_Compute;
 
 typedef struct vulkan_Swapchain
@@ -1594,16 +1595,24 @@ static PyObject *vulkan_Device_create_sampler(vulkan_Device *self, PyObject *arg
 
 static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *args, PyObject *kwds)
 {
-    const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", NULL};
+    const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", NULL};
     Py_buffer view;
     PyObject *py_cbv = NULL;
     PyObject *py_srv = NULL;
     PyObject *py_uav = NULL;
     PyObject *py_samplers = NULL;
 
+    uint32_t push_size = 0;
+
     if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "y*|OOOO", (char **)kwlist, &view, &py_cbv, &py_srv, &py_uav, &py_samplers))
+            args, kwds, "y*|OOOOI", (char **)kwlist, &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size))
         return NULL;
+
+    if (push_size > 0 && (push_size % 4) != 0)
+    {
+        return PyErr_Format(
+            PyExc_ValueError, "Invalid push size (%u) must be a multiple of 4", push_size);
+    }
 
     vulkan_Device *py_device = vulkan_Device_get_device(self);
     if (!py_device)
@@ -1850,6 +1859,8 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     Py_INCREF(py_compute->py_device);
     py_compute->shader_module = shader_module;
 
+    py_compute->push_constant_size = push_size;
+
     VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = {};
     descriptor_set_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     descriptor_set_layout_create_info.bindingCount = (uint32_t)layout_bindings.size();
@@ -1903,6 +1914,16 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layout_create_info.pSetLayouts = &py_compute->descriptor_set_layout;
     layout_create_info.setLayoutCount = 1;
+
+    VkPushConstantRange push_constant = {};
+    if (push_size > 0)
+    {
+        push_constant.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        push_constant.size = push_size;
+
+        layout_create_info.pPushConstantRanges = &push_constant;
+        layout_create_info.pushConstantRangeCount = 1;
+    }
 
     result = vkCreatePipelineLayout(
         py_device->device, &layout_create_info, nullptr, &py_compute->pipeline_layout);
@@ -2850,8 +2871,18 @@ static PyMethodDef vulkan_Swapchain_methods[] = {
 static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
 {
     uint32_t x, y, z;
-    if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
+    Py_buffer view = {};
+    if (!PyArg_ParseTuple(args, "III|y*", &x, &y, &z, &view))
         return NULL;
+
+    if (view.len > 0)
+    {
+        if (view.len > self->push_constant_size || (view.len % 4) != 0)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Invalid push constant size: %u, expected max %u with 4 bytes alignment", view.len, self->push_constant_size);
+        }
+    }
 
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -2861,6 +2892,10 @@ static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
         self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, self->pipeline);
     vkCmdBindDescriptorSets(self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                             self->pipeline_layout, 0, 1, &self->descriptor_set, 0, nullptr);
+    if (view.len > 0)
+    {
+        vkCmdPushConstants(self->py_device->command_buffer, self->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, (uint32_t)view.len, view.buf);
+    }
     vkCmdDispatch(self->py_device->command_buffer, x, y, z);
     vkEndCommandBuffer(self->py_device->command_buffer);
 
