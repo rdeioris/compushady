@@ -262,3 +262,34 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(
             readback_buffer.readback(2 * 3 * 4 * 4), struct.pack("<24I", *range(0, 24))
         )
+
+    def test_push(self):
+        b0 = Buffer(32, format=R32G32B32A32_UINT)
+        b1 = Buffer(b0.size, HEAP_READBACK)
+        shader = hlsl.compile(
+            """
+        RWBuffer<uint4> buffer : register(u0);
+     
+        struct PushConstants
+        {
+            uint2 values;
+        };
+
+        [[vk::push_constant]]
+        ConstantBuffer<PushConstants> push_constants;
+        
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            uint value = push_constants.values[tid.x];
+            buffer[tid.x] = uint4(value, value, value, value);
+        }
+        """
+        )
+        compute = Compute(shader, uav=[b0], push_size=8)
+        compute.dispatch(3, 1, 1, struct.pack("<II", 100, 200))
+        b0.copy_to(b1)
+        self.assertEqual(
+            struct.unpack("8I", b1.readback(32)), (100, 100, 100, 100, 200, 200, 200, 200)
+        )
