@@ -74,6 +74,7 @@ typedef struct metal_Compute
     std::vector<metal_Resource*> uav;
     std::vector<metal_Sampler*> samplers;
     metal_MTLFunction* py_mtl_function;
+    uint32_t push_constant_size;
 } metal_Compute;
 
 typedef struct metal_Swapchain
@@ -411,8 +412,18 @@ static PyMemberDef metal_Swapchain_members[] = {
 static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
 {
     uint32_t x, y, z;
-    if (!PyArg_ParseTuple(args, "III", &x, &y, &z))
+    Py_buffer view = {};
+    if (!PyArg_ParseTuple(args, "III|y*", &x, &y, &z, &view))
         return NULL;
+
+    if (view.len > 0)
+    {
+        if (view.len > self->push_constant_size || (view.len % 4) != 0)
+        {
+            return PyErr_Format(PyExc_ValueError,
+                                "Invalid push constant size: %u, expected max %u with 4 bytes alignment", view.len, self->push_constant_size);
+        }
+    }
 
     id<MTLCommandBuffer> compute_command_buffer = [self->py_device->command_queue commandBuffer];
     id<MTLComputeCommandEncoder> compute_command_encoder =
@@ -455,6 +466,11 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     {
         metal_Sampler* py_sampler = self->samplers[i];
         [compute_command_encoder setSamplerState:py_sampler->sampler atIndex:sampler_index++];
+    }
+
+    if (view.len > 0)
+    {
+        [compute_command_encoder setBytes:view.buf length:view.len atIndex:buffer_index++];
     }
 
     [compute_command_encoder
@@ -837,16 +853,24 @@ static PyObject* metal_Device_create_heap(metal_Device* self, PyObject* args)
 
 static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args, PyObject* kwds)
 {
-    const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", NULL };
+    const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", "push_size", NULL };
     PyObject* py_msl;
     PyObject* py_cbv = NULL;
     PyObject* py_srv = NULL;
     PyObject* py_uav = NULL;
     PyObject* py_samplers = NULL;
 
+    uint32_t push_size = 0;
+
     if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "O|OOOO", (char**)kwlist, &py_msl, &py_cbv, &py_srv, &py_uav, &py_samplers))
+            args, kwds, "O|OOOOI", (char**)kwlist, &py_msl, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size))
         return NULL;
+
+    if (push_size > 0 && (push_size % 4) != 0)
+    {
+        return PyErr_Format(
+            PyExc_ValueError, "Invalid push size (%u) must be a multiple of 4", push_size);
+    }
 
     int ret = PyObject_IsInstance(py_msl, (PyObject*)&metal_MTLFunction_Type);
     if (ret < 0)
@@ -925,6 +949,8 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
         metal_Sampler* py_sampler = py_compute->samplers[i];
         PyList_Append(py_compute->py_samplers_list, (PyObject*)py_sampler);
     }
+
+    py_compute->push_constant_size = push_size;
 
     return (PyObject*)py_compute;
 }
