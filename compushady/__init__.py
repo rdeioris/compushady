@@ -289,7 +289,9 @@ class Heap:
 
 
 class Compute:
-    def __init__(self, shader, cbv=[], srv=[], uav=[], samplers=[], device=None):
+    def __init__(
+        self, shader, cbv=[], srv=[], uav=[], samplers=[], push_size=0, device=None
+    ):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_compute(
             shader,
@@ -297,10 +299,11 @@ class Compute:
             srv=[resource.handle for resource in srv],
             uav=[resource.handle for resource in uav],
             samplers=[sampler.handle for sampler in samplers],
+            push_size=push_size,
         )
 
-    def dispatch(self, x, y, z):
-        self.handle.dispatch(x, y, z)
+    def dispatch(self, x, y, z, push=None):
+        self.handle.dispatch(x, y, z, push if push else b"")
 
     def dispatch_indirect(self, indirect_buffer, offset=0):
         self.handle.dispatch_indirect(indirect_buffer.handle, offset)

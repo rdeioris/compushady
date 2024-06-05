@@ -127,3 +127,31 @@ void main() {
 
         u0.copy_to(u0_readback)
         self.assertEqual(struct.unpack("<I", u0_readback.readback(4))[0], 9)
+
+    def test_push(self):
+        u0 = Buffer(4, stride=4)
+        u0_readback = Buffer(u0.size, HEAP_READBACK)
+
+        shader = glsl.compile(
+            """
+layout( push_constant) uniform constants
+{
+	uint data;
+} PushConstants;
+
+layout(set = 0, binding = 0) buffer output0 {
+    uint data;
+} Output0;
+
+layout (local_size_x = 1) in;
+void main() {
+    Output0.data = PushConstants.data;
+}
+            """,
+            "main",
+        )
+        compute = Compute(shader, uav=[u0], push_size=4)
+        compute.dispatch(1, 1, 1, push=struct.pack("<I", 9))
+
+        u0.copy_to(u0_readback)
+        self.assertEqual(struct.unpack("<I", u0_readback.readback(4))[0], 9)
