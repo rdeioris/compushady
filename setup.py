@@ -108,19 +108,34 @@ if is_windows:
     ]
 elif platform.system() == "Linux":
     if platform.machine() == "armv7l":
-        additional_files = ["backends/libdxcompiler_armhf.so", "backends/libcompushady_naga_armhf.so"]
+        additional_files = [
+            "backends/libdxcompiler_armhf.so",
+            "backends/libcompushady_naga_armhf.so",
+        ]
     elif platform.machine() == "aarch64":
-        additional_files = ["backends/libdxcompiler_aarch64.so", "backends/libcompushady_naga_aarch64.so"]
+        additional_files = [
+            "backends/libdxcompiler_aarch64.so",
+            "backends/libcompushady_naga_aarch64.so",
+        ]
         # we install the 32bit versions too, to support 32bit userspace on 64bit kernel
-        additional_files += ["backends/libdxcompiler_armhf.so", "backends/libcompushady_naga_armhf.so"]
+        additional_files += [
+            "backends/libdxcompiler_armhf.so",
+            "backends/libcompushady_naga_armhf.so",
+        ]
     else:
-        additional_files = ["backends/libdxcompiler_x86_64.so", "backends/libcompushady_naga_x86_64.so"]
+        additional_files = [
+            "backends/libdxcompiler_x86_64.so",
+            "backends/libcompushady_naga_x86_64.so",
+        ]
 elif is_mac:
-    additional_files = ["backends/libdxcompiler.dylib", "backends/libcompushady_naga.dylib"]
+    additional_files = [
+        "backends/libdxcompiler.dylib",
+        "backends/libcompushady_naga.dylib",
+    ]
 
 setup(
     name="compushady",
-    version="0.17.5",
+    version="0.17.6",
     description="The compushady GPU Compute module",
     author="Roberto De Ioris",
     author_email="roberto.deioris@gmail.com",
