@@ -42,6 +42,8 @@ typedef struct metal_Resource
     uint32_t height;
     uint32_t depth;
     metal_Heap* py_heap;
+    uint32_t slices;
+    uint64_t heap_size;    
 } metal_Resource;
 
 typedef struct metal_Sampler
@@ -398,6 +400,8 @@ static PyMemberDef metal_Resource_members[] = {
     { "height", T_UINT, offsetof(metal_Resource, height), 0, "resource height" },
     { "depth", T_UINT, offsetof(metal_Resource, depth), 0, "resource depth" },
     { "row_pitch", T_UINT, offsetof(metal_Resource, row_pitch), 0, "resource row pitch" },
+    { "slices", T_UINT, offsetof(metal_Resource, slices), 0, "resource number of slices"},
+    { "heap_size", T_ULONGLONG, offsetof(metal_Resource, heap_size), 0, "resource heap size"},
     { NULL } /* Sentinel */
 };
 
@@ -691,7 +695,7 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
     id<MTLBuffer> buffer = NULL;
     bool has_heap = false;
 
-    size = [py_device->device heapBufferSizeAndAlignWithLength:size options:options].size;
+    const uint64_t heap_size = [py_device->device heapBufferSizeAndAlignWithLength:size options:options].size;
 
     if (py_heap && py_heap != Py_None)
     {
@@ -717,12 +721,12 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
             return PyErr_Format(Compushady_BufferError, "incompatible heap type for Buffer");
         }
 
-        if (heap_offset + size > py_metal_heap->size)
+        if (heap_offset + heap_size > py_metal_heap->size)
         {
             return PyErr_Format(PyExc_ValueError,
                 "supplied heap is not big enough for the resource size: (offset %llu) %llu "
                 "(required %llu)",
-                heap_offset, py_metal_heap->size, size);
+                heap_offset, py_metal_heap->size, heap_size);
         }
         buffer = [py_metal_heap->heap newBufferWithLength:size options:options offset:heap_offset];
         has_heap = true;
@@ -786,6 +790,9 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
 
         [texture_descriptor release];
     }
+
+    py_resource->heap_size = heap_size;
+    py_resource->slices = 1;
 
     return (PyObject*)py_resource;
 }
@@ -969,8 +976,19 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     int format;
     PyObject* py_heap;
     size_t heap_offset;
-    if (!PyArg_ParseTuple(args, "IIiOK", &width, &height, &format, &py_heap, &heap_offset))
+    uint32_t slices;
+    if (!PyArg_ParseTuple(args, "IIiOKI", &width, &height, &format, &py_heap, &heap_offset, &slices))
         return NULL;
+
+    if (width == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid width");
+    }
+
+    if (height == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid height");
+    }
 
     if (metal_formats.find(format) == metal_formats.end())
     {
@@ -992,9 +1010,9 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     Py_INCREF(py_resource->py_device);
 
     MTLTextureDescriptor* texture_descriptor = [MTLTextureDescriptor new];
-    texture_descriptor.textureType = MTLTextureType2D;
+    texture_descriptor.textureType = slices > 1 ? MTLTextureType2DArray : MTLTextureType2D;
     texture_descriptor.pixelFormat = metal_formats[format].first;
-    texture_descriptor.arrayLength = 1;
+    texture_descriptor.arrayLength = slices;
     texture_descriptor.mipmapLevelCount = 1;
     texture_descriptor.width = width;
     texture_descriptor.height = height;
@@ -1005,7 +1023,7 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
 
     py_resource->size = [py_device->device heapTextureSizeAndAlignWithDescriptor:texture_descriptor].size;
-
+    py_resource->heap_size = py_resource->size;
     if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject*)&metal_Heap_Type);
@@ -1050,6 +1068,7 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     py_resource->width = width;
     py_resource->height = height;
     py_resource->depth = 1;
+    py_resource->slices = slices;
     
     [texture_descriptor release];
 
@@ -1062,12 +1081,18 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     int format;
     PyObject* py_heap;
     size_t heap_offset;
-    if (!PyArg_ParseTuple(args, "IiOK", &width, &format, &py_heap, &heap_offset))
+    uint32_t slices;
+    if (!PyArg_ParseTuple(args, "IiOKI", &width, &format, &py_heap, &heap_offset, &slices))
         return NULL;
 
     if (width == 0)
     {
 	return PyErr_Format(PyExc_ValueError, "invalid width");
+    }
+
+    if (slices == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid number of slices");
     }
 
     if (metal_formats.find(format) == metal_formats.end())
@@ -1090,9 +1115,9 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     Py_INCREF(py_resource->py_device);
 
     MTLTextureDescriptor* texture_descriptor = [MTLTextureDescriptor new];
-    texture_descriptor.textureType = MTLTextureType1D;
+    texture_descriptor.textureType = slices >1 ? MTLTextureType1DArray : MTLTextureType1D;
     texture_descriptor.pixelFormat = metal_formats[format].first;
-    texture_descriptor.arrayLength = 1;
+    texture_descriptor.arrayLength = slices;
     texture_descriptor.mipmapLevelCount = 1;
     texture_descriptor.width = width;
     texture_descriptor.height = 1;
@@ -1103,7 +1128,7 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
 
     py_resource->size = [py_device->device heapTextureSizeAndAlignWithDescriptor:texture_descriptor].size;
-
+    py_resource->heap_size = py_resource->size;
     if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject*)&metal_Heap_Type);
@@ -1148,6 +1173,7 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     py_resource->width = width;
     py_resource->height = 1;
     py_resource->depth = 1;
+    py_resource->slices = slices;
     
     [texture_descriptor release];
 
@@ -1164,6 +1190,21 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     size_t heap_offset;
     if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
         return NULL;
+
+    if (width == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid width");
+    }
+
+    if (height == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid height");
+    }
+
+    if (depth == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid depth");
+    }
 
     if (metal_formats.find(format) == metal_formats.end())
     {
@@ -1198,7 +1239,7 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     texture_descriptor.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
 
     py_resource->size = [py_device->device heapTextureSizeAndAlignWithDescriptor:texture_descriptor].size;
-
+    py_resource->heap_size = py_resource->size;
     if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject*)&metal_Heap_Type);
@@ -1243,6 +1284,7 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     py_resource->width = width;
     py_resource->height = height;
     py_resource->depth = depth;
+    py_resource->slices = 1;
     
     [texture_descriptor release];
 
@@ -1581,7 +1623,9 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     uint32_t dst_x;
     uint32_t dst_y;
     uint32_t dst_z;
-    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z))
+    uint32_t src_slice;
+    uint32_t dst_slice;
+    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject*)&metal_Resource_Type);
@@ -1600,72 +1644,15 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     }
 
     metal_Resource* dst_resource = (metal_Resource*)py_destination;
-    size_t dst_size = ((metal_Resource*)py_destination)->size;
 
-    // buffer to buffer
-    if (self->buffer && dst_resource->buffer)
+    if (!compushady_check_copy_to(self->buffer,
+                                  dst_resource->buffer, size, src_offset, dst_offset, self->size, dst_resource->size,
+                                  src_x, src_y, src_z, src_slice, self->slices, dst_slice, dst_resource->slices,
+                                  self->width, self->height, self->depth,
+                                  dst_resource->width, dst_resource->height, dst_resource->depth,
+                                  &dst_x, &dst_y, &dst_z, &width, &height, &depth))
     {
-        if (src_offset + size > self->size || dst_offset + size > dst_size)
-        {
-            return PyErr_Format(PyExc_ValueError,
-                                "Resource requested size to copy (%llu) is out of bounds "
-                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_offset: %llu)",
-                                size, self->size, src_offset, dst_size, dst_offset);
-        }
-    }
-    // buffer to texture
-    else if (self->buffer && dst_resource->texture)
-    {
-        dst_x = 0;
-        dst_y = 0;
-        dst_z = 0;
-        if (src_offset + size > self->size || size < dst_size)
-        {
-            return PyErr_Format(PyExc_ValueError,
-                                "Resource requested size to copy (%llu) is out of bounds "
-                                "(src_size: %llu, src_offset: %llu, dst_size: %llu, dst_width: %u, dst_height: %u, dst_depth: %u)",
-                                size, size, src_offset, dst_resource->size, dst_resource->width, dst_resource->height, dst_resource->depth);
-        }
-    }
-    // texture to buffer
-    else if (self->texture && dst_resource->buffer)
-    {
-        dst_x = 0;
-        dst_y = 0;
-        dst_z = 0;
-        if (dst_offset + size > dst_size || size < self->size)
-        {
-            return PyErr_Format(PyExc_ValueError,
-                                "Resource requested size to copy (%llu) is out of bounds "
-                                "(dst_size: %llu, dst_offset: %llu, src_size: %llu, src_width: %u, src_height: %u, src_depth: %u)",
-                                size, dst_size, src_offset, dst_resource->size, self->width, self->height, self->depth);
-        }
-    }
-    // texture to texture
-    else
-    {
-        if (width == 0)
-        {
-            width = self->width;
-        }
-
-        if (height == 0)
-        {
-            height = self->height;
-        }
-
-        if (depth == 0)
-        {
-            depth = self->depth;
-        }
-
-        if (src_x + width > self->width || src_y + height > self->height || src_z + depth > self->depth || dst_x + width > dst_resource->width || dst_y + height > dst_resource->height || dst_z + depth > dst_resource->depth)
-        {
-            return PyErr_Format(PyExc_ValueError,
-                                "Resource requested size to copy (width: %u, height: %u, depth: %u) is out of bounds "
-                                "(src_width: %u, src_height: %u, src_depth: %u, dst_width: %u, dst_height: %u, dst_depth: %u)",
-                                width, height, depth, self->width, self->height, self->depth, dst_resource->width, dst_resource->height, dst_resource->depth);
-        }
+        return NULL;
     }
 
     id<MTLCommandBuffer> blit_command_buffer = [self->py_device->command_queue commandBuffer];
@@ -1688,14 +1675,14 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
                                   sourceSize:MTLSizeMake(dst_resource->width, dst_resource->height,
                                                  dst_resource->depth)
                                    toTexture:dst_resource->texture
-                            destinationSlice:0
+                            destinationSlice:dst_slice
                             destinationLevel:0
                            destinationOrigin:MTLOriginMake(0, 0, 0)];
     }
     else if (dst_resource->buffer) // image to buffer
     {
         [blit_command_encoder copyFromTexture:self->texture
-                                  sourceSlice:0
+                                  sourceSlice:src_slice
                                   sourceLevel:0
                                  sourceOrigin:MTLOriginMake(0, 0, 0)
                                    sourceSize:MTLSizeMake(self->width, self->height, self->depth)
@@ -1707,12 +1694,12 @@ static PyObject* metal_Resource_copy_to(metal_Resource* self, PyObject* args)
     else // image to image
     {
         [blit_command_encoder copyFromTexture:self->texture
-					sourceSlice:0
+					sourceSlice:src_slice
                                   	sourceLevel:0
 					sourceOrigin:MTLOriginMake(src_x, src_y, src_z)
 					sourceSize:MTLSizeMake(width, height, depth)
 					toTexture:dst_resource->texture
-                            		destinationSlice:0
+                            		destinationSlice:dst_slice
                             		destinationLevel:0
                                 	destinationOrigin:MTLOriginMake(dst_x, dst_y, dst_z)];
     }

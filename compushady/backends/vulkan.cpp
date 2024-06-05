@@ -2577,7 +2577,6 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     }
 
     vulkan_Resource *dst_resource = (vulkan_Resource *)py_destination;
-    uint64_t dst_size = dst_resource->size;
 
     if (size == 0)
     {
