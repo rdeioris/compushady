@@ -1871,7 +1871,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     if (result != VK_SUCCESS)
     {
         Py_DECREF(py_compute);
-        return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Set LayOut");
+        return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Set Layout");
     }
 
     VkDescriptorPoolCreateInfo pool_info = {};
