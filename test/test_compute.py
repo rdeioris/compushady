@@ -302,8 +302,8 @@ class ComputeTests(unittest.TestCase):
             [numthreads(1, 1, 1)]
             void main(uint3 tid : SV_DispatchThreadID)
             {
-                Buffer<uint> buffer0 = ResourceDescriptorHeap[tid.x];
-                RWBuffer<uint> target0 = ResourceDescriptorHeap[63];
+                Buffer<uint> buffer0 = ResourceDescriptorHeap[64 + tid.x];
+                RWBuffer<uint> target0 = ResourceDescriptorHeap[64 + 64];
                 target0[tid.x] = buffer0[0];
             }
             """,
@@ -316,21 +316,58 @@ class ComputeTests(unittest.TestCase):
         compute = Compute(shader, bindless=True)
 
         b_upload = Buffer(4, HEAP_UPLOAD)
-        b_output = Buffer(4 * 63, format=R32_UINT)
+        b_output = Buffer(4 * 64, format=R32_UINT)
         b_readback = Buffer(b_output.size, HEAP_READBACK)
 
-        compute.bind_uav(63, b_output)
+        compute.bind_uav(0, b_output)
 
-        for i in range(0, 63):
+        for i in range(0, 64):
             b = Buffer(4, format=R32_UINT)
             b_upload.upload(struct.pack("<I", i))
             b_upload.copy_to(b)
             compute.bind_srv(i, b)
 
-        compute.dispatch(63, 1, 1)
+        compute.dispatch(64, 1, 1)
 
         b_output.copy_to(b_readback)
 
         self.assertEqual(
-            struct.unpack("<63I", b_readback.readback(4 * 63)), tuple(range(0, 63))
+            struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
+        )
+
+    def test_bindless_legacy(self):
+        shader = hlsl.compile(
+            """
+        Buffer<uint> buffers[] : register(t0);
+        RWBuffer<uint> targets[] : register(u0);
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            Buffer<uint> buffer0 = buffers[tid.x];
+            targets[0][tid.x] = buffer0[0];
+        }
+        """
+        )
+
+        compute = Compute(shader, bindless=True)
+
+        b_upload = Buffer(4, HEAP_UPLOAD)
+        b_output = Buffer(4 * 64, format=R32_UINT)
+        b_readback = Buffer(b_output.size, HEAP_READBACK)
+
+        compute.bind_uav(0, b_output)
+
+        for i in range(0, 64):
+            b = Buffer(4, format=R32_UINT)
+            b_upload.upload(struct.pack("<I", i))
+            b_upload.copy_to(b)
+            compute.bind_srv(i, b)
+
+        compute.dispatch(64, 1, 1)
+
+        b_output.copy_to(b_readback)
+
+        self.assertEqual(
+            struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )

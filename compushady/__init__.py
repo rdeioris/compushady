@@ -333,8 +333,10 @@ class Compute:
     def dispatch(self, x, y, z, push=None):
         self.handle.dispatch(x, y, z, push if push else b"")
 
-    def dispatch_indirect(self, indirect_buffer, offset=0):
-        self.handle.dispatch_indirect(indirect_buffer.handle, offset)
+    def dispatch_indirect(self, indirect_buffer, offset=0, push=None):
+        self.handle.dispatch_indirect(
+            indirect_buffer.handle, offset, push if push else b""
+        )
 
     def bind_cbv(self, index, cbv):
         self.handle.bind_cbv(index, cbv.handle)

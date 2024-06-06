@@ -89,7 +89,6 @@ typedef struct d3d12_Compute
 	PyObject *py_srv_list;
 	PyObject *py_uav_list;
 	PyObject *py_samplers_list;
-	PyObject *py_bindless_list;
 } d3d12_Compute;
 
 static PyMemberDef d3d12_Device_members[] = {
@@ -386,7 +385,6 @@ static void d3d12_Compute_dealloc(d3d12_Compute *self)
 	Py_XDECREF(self->py_srv_list);
 	Py_XDECREF(self->py_uav_list);
 	Py_XDECREF(self->py_samplers_list);
-	Py_XDECREF(self->py_bindless_list);
 
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -1361,6 +1359,36 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			ranges.push_back(range);
 		}
 	}
+	else
+	{
+		if (cbv.size() > bindless)
+		{
+			PyBuffer_Release(&view);
+			return PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)cbv.size(), bindless);
+		}
+
+		if (srv.size() > bindless)
+		{
+			PyBuffer_Release(&view);
+			return PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)srv.size(), bindless);
+		}
+
+		if (uav.size() > bindless)
+		{
+			PyBuffer_Release(&view);
+			return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)uav.size(), bindless);
+		}
+		D3D12_DESCRIPTOR_RANGE1 range = {};
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+		range.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
+		range.NumDescriptors = bindless;
+		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+		ranges.push_back(range);
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+		ranges.push_back(range);
+		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+		ranges.push_back(range);
+	}
 
 	if (samplers.size() > 0)
 	{
@@ -1441,7 +1469,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Root Signature");
 	}
 
-	const UINT num_descriptors = max((UINT)(cbv.size() + srv.size() + uav.size()), bindless);
+	const UINT num_descriptors = (bindless > 0) ? (bindless * 3) : ((UINT)(cbv.size() + srv.size() + uav.size()));
 	if (num_descriptors > 0)
 	{
 		D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc = {};
@@ -1471,6 +1499,11 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			cpu_handle.ptr += py_compute->bind_increment;
 		}
 
+		if (bindless > 0)
+		{
+			cpu_handle.ptr = py_compute->bind_start.ptr + (bindless * py_compute->bind_increment);
+		}
+
 		for (d3d12_Resource *resource : srv)
 		{
 			if (resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
@@ -1492,6 +1525,11 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 				py_device->device->CreateShaderResourceView(resource->resource, NULL, cpu_handle);
 			}
 			cpu_handle.ptr += py_compute->bind_increment;
+		}
+
+		if (bindless > 0)
+		{
+			cpu_handle.ptr = py_compute->bind_start.ptr + (bindless * py_compute->bind_increment * 2);
 		}
 
 		for (d3d12_Resource *resource : uav)
@@ -1572,40 +1610,59 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Command Signature");
 	}
 
-	py_compute->bindless = (bindless > 0) ? num_descriptors : 0;
+	py_compute->bindless = bindless;
 
-	py_compute->py_cbv_list = PyList_New(0);
-	py_compute->py_srv_list = PyList_New(0);
-	py_compute->py_uav_list = PyList_New(0);
+	const size_t num_cbv = (bindless > 0) ? bindless : cbv.size();
+	const size_t num_srv = (bindless > 0) ? bindless : srv.size();
+	const size_t num_uav = (bindless > 0) ? bindless : uav.size();
+
+	py_compute->py_cbv_list = PyList_New(num_cbv);
+	py_compute->py_srv_list = PyList_New(num_srv);
+	py_compute->py_uav_list = PyList_New(num_uav);
 	py_compute->py_samplers_list = PyList_New(0);
 
-	for (d3d12_Resource *py_resource : cbv)
+	for (size_t i = 0; i < num_cbv; i++)
 	{
-		PyList_Append(py_compute->py_cbv_list, (PyObject *)py_resource);
+		if (i < cbv.size())
+		{
+			Py_INCREF((PyObject *)cbv[i]);
+			PyList_SetItem(py_compute->py_cbv_list, i, (PyObject *)cbv[i]);
+		}
+		else
+		{
+			PyList_SetItem(py_compute->py_cbv_list, i, Py_None);
+		}
 	}
 
-	for (d3d12_Resource *py_resource : srv)
+	for (size_t i = 0; i < num_srv; i++)
 	{
-		PyList_Append(py_compute->py_srv_list, (PyObject *)py_resource);
+		if (i < srv.size())
+		{
+			Py_INCREF((PyObject *)srv[i]);
+			PyList_SetItem(py_compute->py_srv_list, i, (PyObject *)srv[i]);
+		}
+		else
+		{
+			PyList_SetItem(py_compute->py_srv_list, i, Py_None);
+		}
 	}
 
-	for (d3d12_Resource *py_resource : uav)
+	for (size_t i = 0; i < num_uav; i++)
 	{
-		PyList_Append(py_compute->py_uav_list, (PyObject *)py_resource);
+		if (i < uav.size())
+		{
+			Py_INCREF((PyObject *)uav[i]);
+			PyList_SetItem(py_compute->py_uav_list, i, (PyObject *)uav[i]);
+		}
+		else
+		{
+			PyList_SetItem(py_compute->py_uav_list, i, Py_None);
+		}
 	}
 
 	for (d3d12_Sampler *py_sampler : samplers)
 	{
 		PyList_Append(py_compute->py_samplers_list, (PyObject *)py_sampler);
-	}
-
-	if (py_compute->bindless > 0)
-	{
-		py_compute->py_bindless_list = PyList_New(py_compute->bindless);
-		for (UINT bindless_index = 0; bindless_index < py_compute->bindless; bindless_index++)
-		{
-			PyList_SetItem(py_compute->py_bindless_list, bindless_index, Py_None);
-		}
 	}
 
 	return (PyObject *)py_compute;
@@ -1998,8 +2055,8 @@ static PyMethodDef d3d12_Resource_methods[] = {
 static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
 {
 	UINT x, y, z;
-	Py_buffer view = {};
-	if (!PyArg_ParseTuple(args, "III|y*", &x, &y, &z, &view))
+	Py_buffer view;
+	if (!PyArg_ParseTuple(args, "IIIy*", &x, &y, &z, &view))
 		return NULL;
 
 	if (view.len > 0)
@@ -2025,7 +2082,7 @@ static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
 
 	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
 
-	if (self->descriptor_heaps[0] && self->bindless == 0)
+	if (self->descriptor_heaps[0])
 	{
 		self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
 	}
@@ -2064,7 +2121,8 @@ static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *
 {
 	PyObject *py_indirect_buffer;
 	UINT offset;
-	if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+	Py_buffer view;
+	if (!PyArg_ParseTuple(args, "OIy*", &py_indirect_buffer, &offset, &view))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&d3d12_Resource_Type);
@@ -2085,13 +2143,39 @@ static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *
 
 	self->py_device->command_allocator->Reset();
 	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
-	self->py_device->command_list->SetDescriptorHeaps(self->descriptor_heaps[1] ? 2 : 1, self->descriptor_heaps);
+	if (self->descriptor_heaps[0])
+	{
+		self->py_device->command_list->SetDescriptorHeaps(self->descriptor_heaps[1] ? 2 : 1, self->descriptor_heaps);
+	}
+	else if (self->descriptor_heaps[1])
+	{
+		self->py_device->command_list->SetDescriptorHeaps(1, &self->descriptor_heaps[1]);
+	}
+
 	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
-	self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
+
+	if (self->descriptor_heaps[0])
+	{
+		self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
+	}
+
 	if (self->descriptor_heaps[1])
 	{
-		self->py_device->command_list->SetComputeRootDescriptorTable(1, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+		if (!self->descriptor_heaps[0])
+		{
+			self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+		}
+		else
+		{
+			self->py_device->command_list->SetComputeRootDescriptorTable(1, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+		}
 	}
+
+	if (view.len > 0)
+	{
+		self->py_device->command_list->SetComputeRoot32BitConstants(self->push_constant_slot, (UINT)(view.len / 4), view.buf, 0);
+	}
+
 	self->py_device->command_list->ExecuteIndirect(self->command_signature, 1, py_resource->resource, offset, NULL, 0);
 	self->py_device->command_list->Close();
 
@@ -2148,7 +2232,7 @@ static PyObject *d3d12_Compute_bind_cbv(d3d12_Compute *self, PyObject *args)
 	self->py_device->device->CreateConstantBufferView(&cbv_desc, cpu_handle);
 
 	Py_INCREF(py_resource);
-	PyList_SetItem(self->py_bindless_list, index, py_resource);
+	PyList_SetItem(self->py_cbv_list, index, py_resource);
 
 	Py_RETURN_NONE;
 }
@@ -2183,7 +2267,7 @@ static PyObject *d3d12_Compute_bind_srv(d3d12_Compute *self, PyObject *args)
 	d3d12_Resource *py_srv = (d3d12_Resource *)py_resource;
 
 	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = self->bind_start;
-	cpu_handle.ptr += index * self->bind_increment;
+	cpu_handle.ptr += (self->bindless * self->bind_increment) + index * self->bind_increment;
 
 	if (py_srv->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
@@ -2205,7 +2289,7 @@ static PyObject *d3d12_Compute_bind_srv(d3d12_Compute *self, PyObject *args)
 	}
 
 	Py_INCREF(py_resource);
-	PyList_SetItem(self->py_bindless_list, index, py_resource);
+	PyList_SetItem(self->py_srv_list, index, py_resource);
 
 	Py_RETURN_NONE;
 }
@@ -2240,7 +2324,7 @@ static PyObject *d3d12_Compute_bind_uav(d3d12_Compute *self, PyObject *args)
 	d3d12_Resource *py_uav = (d3d12_Resource *)py_resource;
 
 	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = self->bind_start;
-	cpu_handle.ptr += index * self->bind_increment;
+	cpu_handle.ptr += (self->bindless * self->bind_increment * 2) + index * self->bind_increment;
 
 	if (py_uav->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
@@ -2261,7 +2345,7 @@ static PyObject *d3d12_Compute_bind_uav(d3d12_Compute *self, PyObject *args)
 	}
 
 	Py_INCREF(py_resource);
-	PyList_SetItem(self->py_bindless_list, index, py_resource);
+	PyList_SetItem(self->py_uav_list, index, py_resource);
 
 	Py_RETURN_NONE;
 }
