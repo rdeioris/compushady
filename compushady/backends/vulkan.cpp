@@ -1643,7 +1643,7 @@ static PyObject *vulkan_Device_create_sampler(vulkan_Device *self, PyObject *arg
 
 static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *args, PyObject *kwds)
 {
-    const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", NULL};
+    const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
     Py_buffer view;
     PyObject *py_cbv = NULL;
     PyObject *py_srv = NULL;
@@ -1651,9 +1651,10 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     PyObject *py_samplers = NULL;
 
     uint32_t push_size = 0;
+    uint32_t bindless = 0;
 
     if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "y*|OOOOI", (char **)kwlist, &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size))
+            args, kwds, "y*|OOOOII", (char **)kwlist, &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
         return NULL;
 
     if (push_size > 0 && (push_size % 4) != 0)

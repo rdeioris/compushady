@@ -82,6 +82,14 @@ typedef struct d3d12_Compute
 	ID3D12CommandSignature *command_signature;
 	UINT push_constant_slot;
 	UINT push_constant_values;
+	UINT bindless;
+	D3D12_CPU_DESCRIPTOR_HANDLE bind_start;
+	UINT bind_increment;
+	PyObject *py_cbv_list;
+	PyObject *py_srv_list;
+	PyObject *py_uav_list;
+	PyObject *py_samplers_list;
+	PyObject *py_bindless_list;
 } d3d12_Compute;
 
 static PyMemberDef d3d12_Device_members[] = {
@@ -373,6 +381,12 @@ static void d3d12_Compute_dealloc(d3d12_Compute *self)
 		self->root_signature->Release();
 
 	Py_XDECREF(self->py_device);
+
+	Py_XDECREF(self->py_cbv_list);
+	Py_XDECREF(self->py_srv_list);
+	Py_XDECREF(self->py_uav_list);
+	Py_XDECREF(self->py_samplers_list);
+	Py_XDECREF(self->py_bindless_list);
 
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -1287,16 +1301,17 @@ static PyObject *d3d12_Device_get_debug_messages(d3d12_Device *self, PyObject *a
 
 static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args, PyObject *kwds)
 {
-	const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", NULL};
+	const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
 	Py_buffer view;
 	PyObject *py_cbv = NULL;
 	PyObject *py_srv = NULL;
 	PyObject *py_uav = NULL;
 	PyObject *py_samplers = NULL;
 	UINT push_size = 0;
+	UINT bindless = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOOI", (char **)kwlist,
-									 &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOOII", (char **)kwlist,
+									 &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
 		return NULL;
 
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
@@ -1317,31 +1332,34 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 	std::vector<D3D12_DESCRIPTOR_RANGE1> ranges;
 	std::vector<D3D12_DESCRIPTOR_RANGE1> samplers_ranges;
 
-	if (cbv.size() > 0)
+	if (bindless == 0)
 	{
-		D3D12_DESCRIPTOR_RANGE1 range = {};
-		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-		range.NumDescriptors = (UINT)cbv.size();
-		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-		ranges.push_back(range);
-	}
+		if (cbv.size() > 0)
+		{
+			D3D12_DESCRIPTOR_RANGE1 range = {};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+			range.NumDescriptors = (UINT)cbv.size();
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+			ranges.push_back(range);
+		}
 
-	if (srv.size() > 0)
-	{
-		D3D12_DESCRIPTOR_RANGE1 range = {};
-		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-		range.NumDescriptors = (UINT)srv.size();
-		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-		ranges.push_back(range);
-	}
+		if (srv.size() > 0)
+		{
+			D3D12_DESCRIPTOR_RANGE1 range = {};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+			range.NumDescriptors = (UINT)srv.size();
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+			ranges.push_back(range);
+		}
 
-	if (uav.size() > 0)
-	{
-		D3D12_DESCRIPTOR_RANGE1 range = {};
-		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-		range.NumDescriptors = (UINT)uav.size();
-		range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-		ranges.push_back(range);
+		if (uav.size() > 0)
+		{
+			D3D12_DESCRIPTOR_RANGE1 range = {};
+			range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+			range.NumDescriptors = (UINT)uav.size();
+			range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+			ranges.push_back(range);
+		}
 	}
 
 	if (samplers.size() > 0)
@@ -1391,6 +1409,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 	versioned_root_signature.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
 	versioned_root_signature.Desc_1_1.NumParameters = (UINT)root_parameters.size();
 	versioned_root_signature.Desc_1_1.pParameters = root_parameters.data();
+	versioned_root_signature.Desc_1_1.Flags = bindless > 0 ? D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED : D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
 	ID3DBlob *serialized_root_signature;
 	HRESULT hr = D3D12SerializeVersionedRootSignature(&versioned_root_signature, &serialized_root_signature, NULL);
@@ -1422,12 +1441,13 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Root Signature");
 	}
 
-	if ((cbv.size() + srv.size() + uav.size()) > 0)
+	const UINT num_descriptors = max((UINT)(cbv.size() + srv.size() + uav.size()), bindless);
+	if (num_descriptors > 0)
 	{
 		D3D12_DESCRIPTOR_HEAP_DESC descriptor_heap_desc = {};
 		descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 		descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-		descriptor_heap_desc.NumDescriptors = (UINT)(cbv.size() + srv.size() + uav.size());
+		descriptor_heap_desc.NumDescriptors = num_descriptors;
 
 		hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void **)&py_compute->descriptor_heaps[0]);
 		if (hr != S_OK)
@@ -1437,8 +1457,10 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Descriptor Heap");
 		}
 
-		UINT increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->descriptor_heaps[0]->GetCPUDescriptorHandleForHeapStart();
+		py_compute->bind_increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		py_compute->bind_start = py_compute->descriptor_heaps[0]->GetCPUDescriptorHandleForHeapStart();
+
+		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->bind_start;
 
 		for (d3d12_Resource *resource : cbv)
 		{
@@ -1446,7 +1468,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			cbv_desc.BufferLocation = resource->resource->GetGPUVirtualAddress();
 			cbv_desc.SizeInBytes = (UINT)COMPUSHADY_ALIGN(resource->size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 			py_device->device->CreateConstantBufferView(&cbv_desc, cpu_handle);
-			cpu_handle.ptr += increment;
+			cpu_handle.ptr += py_compute->bind_increment;
 		}
 
 		for (d3d12_Resource *resource : srv)
@@ -1469,7 +1491,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			{
 				py_device->device->CreateShaderResourceView(resource->resource, NULL, cpu_handle);
 			}
-			cpu_handle.ptr += increment;
+			cpu_handle.ptr += py_compute->bind_increment;
 		}
 
 		for (d3d12_Resource *resource : uav)
@@ -1491,7 +1513,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			{
 				py_device->device->CreateUnorderedAccessView(resource->resource, NULL, NULL, cpu_handle);
 			}
-			cpu_handle.ptr += increment;
+			cpu_handle.ptr += py_compute->bind_increment;
 		}
 	}
 
@@ -1548,6 +1570,42 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 	{
 		Py_DECREF(py_compute);
 		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Command Signature");
+	}
+
+	py_compute->bindless = (bindless > 0) ? num_descriptors : 0;
+
+	py_compute->py_cbv_list = PyList_New(0);
+	py_compute->py_srv_list = PyList_New(0);
+	py_compute->py_uav_list = PyList_New(0);
+	py_compute->py_samplers_list = PyList_New(0);
+
+	for (d3d12_Resource *py_resource : cbv)
+	{
+		PyList_Append(py_compute->py_cbv_list, (PyObject *)py_resource);
+	}
+
+	for (d3d12_Resource *py_resource : srv)
+	{
+		PyList_Append(py_compute->py_srv_list, (PyObject *)py_resource);
+	}
+
+	for (d3d12_Resource *py_resource : uav)
+	{
+		PyList_Append(py_compute->py_uav_list, (PyObject *)py_resource);
+	}
+
+	for (d3d12_Sampler *py_sampler : samplers)
+	{
+		PyList_Append(py_compute->py_samplers_list, (PyObject *)py_sampler);
+	}
+
+	if (py_compute->bindless > 0)
+	{
+		py_compute->py_bindless_list = PyList_New(py_compute->bindless);
+		for (UINT bindless_index = 0; bindless_index < py_compute->bindless; bindless_index++)
+		{
+			PyList_SetItem(py_compute->py_bindless_list, bindless_index, Py_None);
+		}
 	}
 
 	return (PyObject *)py_compute;
@@ -1967,10 +2025,11 @@ static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
 
 	self->py_device->command_list->SetComputeRootSignature(self->root_signature);
 
-	if (self->descriptor_heaps[0])
+	if (self->descriptor_heaps[0] && self->bindless == 0)
 	{
 		self->py_device->command_list->SetComputeRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
 	}
+
 	if (self->descriptor_heaps[1])
 	{
 		if (!self->descriptor_heaps[0])
@@ -2046,9 +2105,173 @@ static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *
 	Py_RETURN_NONE;
 }
 
+static PyObject *d3d12_Compute_bind_cbv(d3d12_Compute *self, PyObject *args)
+{
+	UINT index;
+	PyObject *py_resource;
+	if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+		return NULL;
+
+	if (self->bindless == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+	}
+
+	if (index >= self->bindless)
+	{
+		return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+	}
+
+	const int ret = PyObject_IsInstance(py_resource, (PyObject *)&d3d12_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+
+	d3d12_Resource *py_cbv = (d3d12_Resource *)py_resource;
+
+	if (py_cbv->dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+	}
+
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = self->bind_start;
+	cpu_handle.ptr += index * self->bind_increment;
+
+	D3D12_CONSTANT_BUFFER_VIEW_DESC cbv_desc = {};
+	cbv_desc.BufferLocation = py_cbv->resource->GetGPUVirtualAddress();
+	cbv_desc.SizeInBytes = (UINT)COMPUSHADY_ALIGN(py_cbv->size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
+	self->py_device->device->CreateConstantBufferView(&cbv_desc, cpu_handle);
+
+	Py_INCREF(py_resource);
+	PyList_SetItem(self->py_bindless_list, index, py_resource);
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *d3d12_Compute_bind_srv(d3d12_Compute *self, PyObject *args)
+{
+	UINT index;
+	PyObject *py_resource;
+	if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+		return NULL;
+
+	if (self->bindless == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+	}
+
+	if (index >= self->bindless)
+	{
+		return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+	}
+
+	const int ret = PyObject_IsInstance(py_resource, (PyObject *)&d3d12_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+
+	d3d12_Resource *py_srv = (d3d12_Resource *)py_resource;
+
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = self->bind_start;
+	cpu_handle.ptr += index * self->bind_increment;
+
+	if (py_srv->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+		srv_desc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+		srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srv_desc.Format = py_srv->format;
+		srv_desc.Buffer.NumElements = (UINT)(py_srv->size / (srv_desc.Format ? dxgi_pixels_sizes[py_srv->format] : 1));
+		srv_desc.Buffer.StructureByteStride = py_srv->stride;
+		if (py_srv->stride > 0)
+		{
+			srv_desc.Buffer.NumElements = (UINT)(py_srv->size / py_srv->stride);
+		}
+		self->py_device->device->CreateShaderResourceView(py_srv->resource, &srv_desc, cpu_handle);
+	}
+	else
+	{
+		self->py_device->device->CreateShaderResourceView(py_srv->resource, NULL, cpu_handle);
+	}
+
+	Py_INCREF(py_resource);
+	PyList_SetItem(self->py_bindless_list, index, py_resource);
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *d3d12_Compute_bind_uav(d3d12_Compute *self, PyObject *args)
+{
+	UINT index;
+	PyObject *py_resource;
+	if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+		return NULL;
+
+	if (self->bindless == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+	}
+
+	if (index >= self->bindless)
+	{
+		return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+	}
+
+	const int ret = PyObject_IsInstance(py_resource, (PyObject *)&d3d12_Resource_Type);
+	if (ret < 0)
+	{
+		return NULL;
+	}
+	else if (ret == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+	}
+
+	d3d12_Resource *py_uav = (d3d12_Resource *)py_resource;
+
+	D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = self->bind_start;
+	cpu_handle.ptr += index * self->bind_increment;
+
+	if (py_uav->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
+	{
+		D3D12_UNORDERED_ACCESS_VIEW_DESC uav_desc = {};
+		uav_desc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+		uav_desc.Format = py_uav->format;
+		uav_desc.Buffer.NumElements = (UINT)(py_uav->size / (uav_desc.Format ? dxgi_pixels_sizes[py_uav->format] : 1));
+		uav_desc.Buffer.StructureByteStride = py_uav->stride;
+		if (py_uav->stride > 0)
+		{
+			uav_desc.Buffer.NumElements = (UINT)(py_uav->size / py_uav->stride);
+		}
+		self->py_device->device->CreateUnorderedAccessView(py_uav->resource, NULL, &uav_desc, cpu_handle);
+	}
+	else
+	{
+		self->py_device->device->CreateUnorderedAccessView(py_uav->resource, NULL, NULL, cpu_handle);
+	}
+
+	Py_INCREF(py_resource);
+	PyList_SetItem(self->py_bindless_list, index, py_resource);
+
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef d3d12_Compute_methods[] = {
 	{"dispatch", (PyCFunction)d3d12_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
 	{"dispatch_indirect", (PyCFunction)d3d12_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline"},
+	{"bind_cbv", (PyCFunction)d3d12_Compute_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Compute Pipeline"},
+	{"bind_srv", (PyCFunction)d3d12_Compute_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Compute Pipeline"},
+	{"bind_uav", (PyCFunction)d3d12_Compute_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Compute Pipeline"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 

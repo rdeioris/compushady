@@ -308,7 +308,16 @@ class Heap:
 
 class Compute:
     def __init__(
-        self, shader, cbv=[], srv=[], uav=[], samplers=[], push_size=0, device=None
+        self,
+        shader,
+        cbv=[],
+        srv=[],
+        uav=[],
+        samplers=[],
+        push_size=0,
+        bindless=False,
+        max_bindless=64,
+        device=None,
     ):
         self.device = device if device else get_current_device()
         self.handle = self.device.create_compute(
@@ -318,6 +327,7 @@ class Compute:
             uav=[resource.handle for resource in uav],
             samplers=[sampler.handle for sampler in samplers],
             push_size=push_size,
+            bindless=max_bindless if bindless else 0,
         )
 
     def dispatch(self, x, y, z, push=None):
@@ -325,3 +335,12 @@ class Compute:
 
     def dispatch_indirect(self, indirect_buffer, offset=0):
         self.handle.dispatch_indirect(indirect_buffer.handle, offset)
+
+    def bind_cbv(self, index, cbv):
+        self.handle.bind_cbv(index, cbv.handle)
+
+    def bind_srv(self, index, srv):
+        self.handle.bind_srv(index, srv.handle)
+
+    def bind_uav(self, index, uav):
+        self.handle.bind_uav(index, uav.handle)

@@ -291,5 +291,46 @@ class ComputeTests(unittest.TestCase):
         compute.dispatch(3, 1, 1, struct.pack("<II", 100, 200))
         b0.copy_to(b1)
         self.assertEqual(
-            struct.unpack("8I", b1.readback(32)), (100, 100, 100, 100, 200, 200, 200, 200)
+            struct.unpack("8I", b1.readback(32)),
+            (100, 100, 100, 100, 200, 200, 200, 200),
+        )
+
+    def test_bindless(self):
+        try:
+            shader = hlsl.compile(
+                """
+            [numthreads(1, 1, 1)]
+            void main(uint3 tid : SV_DispatchThreadID)
+            {
+                Buffer<uint> buffer0 = ResourceDescriptorHeap[tid.x];
+                RWBuffer<uint> target0 = ResourceDescriptorHeap[63];
+                target0[tid.x] = buffer0[0];
+            }
+            """,
+                "main",
+                "cs_6_6",
+            )
+        except ValueError:
+            self.skipTest("shader model 6.6 not supported")
+
+        compute = Compute(shader, bindless=True)
+
+        b_upload = Buffer(4, HEAP_UPLOAD)
+        b_output = Buffer(4 * 63, format=R32_UINT)
+        b_readback = Buffer(b_output.size, HEAP_READBACK)
+
+        compute.bind_uav(63, b_output)
+
+        for i in range(0, 63):
+            b = Buffer(4, format=R32_UINT)
+            b_upload.upload(struct.pack("<I", i))
+            b_upload.copy_to(b)
+            compute.bind_srv(i, b)
+
+        compute.dispatch(63, 1, 1)
+
+        b_output.copy_to(b_readback)
+
+        self.assertEqual(
+            struct.unpack("<63I", b_readback.readback(4 * 63)), tuple(range(0, 63))
         )
