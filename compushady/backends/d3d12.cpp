@@ -1630,6 +1630,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		}
 		else
 		{
+			Py_INCREF(Py_None);
 			PyList_SetItem(py_compute->py_cbv_list, i, Py_None);
 		}
 	}
@@ -1643,6 +1644,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		}
 		else
 		{
+			Py_INCREF(Py_None);
 			PyList_SetItem(py_compute->py_srv_list, i, Py_None);
 		}
 	}
@@ -1656,6 +1658,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		}
 		else
 		{
+			Py_INCREF(Py_None);
 			PyList_SetItem(py_compute->py_uav_list, i, Py_None);
 		}
 	}

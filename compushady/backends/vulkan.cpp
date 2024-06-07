@@ -30,14 +30,12 @@ static std::vector<std::string> vulkan_debug_messages;
 
 static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
-static bool vulkan_supports_swapchain = true;
-static std::vector<std::string> vulkan_swapchain_extensions;
+
+static bool vulkan_supports_swapchain = false;
 
 #if !defined(_WIN32) && !defined(__APPLE__)
-static bool vulkan_has_wayland = false;
+static bool vulkan_supports_wayland = false;
 #endif
-
-static bool vulkan_bindless = false;
 
 typedef struct vulkan_Device
 {
@@ -58,6 +56,7 @@ typedef struct vulkan_Device
     char is_hardware;
     char is_discrete;
     VkPhysicalDeviceFeatures features;
+    bool supports_bindless;
 } vulkan_Device;
 
 typedef struct vulkan_Heap
@@ -609,17 +608,14 @@ static PyObject *vulkan_instance_check()
     vkEnumerateInstanceLayerProperties(&layers_count, NULL);
     std::vector<VkLayerProperties> available_layers(layers_count);
     vkEnumerateInstanceLayerProperties(&layers_count, available_layers.data());
-    if (vulkan_debug)
+
+    for (VkLayerProperties &layer_prop : available_layers)
     {
-        vulkan_debug = false;
-        for (VkLayerProperties &layer_prop : available_layers)
+        if (vulkan_debug && !strcmp(layer_prop.layerName, "VK_LAYER_KHRONOS_validation"))
         {
-            if (!strcmp(layer_prop.layerName, "VK_LAYER_KHRONOS_validation"))
-            {
-                layers.push_back("VK_LAYER_KHRONOS_validation");
-                vulkan_debug = true;
-                break;
-            }
+            layers.push_back("VK_LAYER_KHRONOS_validation");
+            vulkan_debug = true;
+            break;
         }
     }
 
@@ -628,60 +624,67 @@ static PyObject *vulkan_instance_check()
     std::vector<VkExtensionProperties> available_extensions(extensions_count);
     vkEnumerateInstanceExtensionProperties(nullptr, &extensions_count, available_extensions.data());
 
+    bool surface = false;
+    bool swapchain = false;
+
     for (VkExtensionProperties &extension_prop : available_extensions)
     {
-        if (!strcmp(extension_prop.extensionName, VK_KHR_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_surface"))
         {
-            extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-            vulkan_swapchain_extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+            extensions.push_back("VK_KHR_surface");
+            surface = true;
             continue;
         }
 
 #ifdef _WIN32
-        if (!strcmp(extension_prop.extensionName, VK_KHR_WIN32_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_win32_surface"))
         {
-            extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-            vulkan_swapchain_extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+            extensions.push_back("VK_KHR_win32_surface");
+            swapchain = true;
             continue;
         }
 #else
 #ifdef __APPLE__
-        if (!strcmp(extension_prop.extensionName, VK_EXT_METAL_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extension_prop.extensionName, "VK_EXT_metal_surface"))
         {
-            extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
-            vulkan_swapchain_extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+            extensions.push_back("VK_EXT_metal_surface");
+            swapchain = true;
             continue;
         }
-#ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-        if (!strcmp(extension_prop.extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME))
+
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_portability_enumeration"))
         {
-            extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            extensions.push_back("VK_KHR_portability_enumeration");
             continue;
         }
-#endif
 #else
-        if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_xlib_surface"))
         {
-            extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
-            vulkan_swapchain_extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+            extensions.push_back("VK_KHR_xlib_surface");
+            swapchain = true;
             continue;
         }
 
-        if (!strcmp(extension_prop.extensionName, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_wayland_surface"))
         {
-            extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
-            vulkan_swapchain_extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
-            vulkan_has_wayland = true;
+            extensions.push_back("VK_KHR_wayland_surface");
+            swapchain = true;
+            vulkan_supports_wayland = true;
             continue;
         }
 #endif
 #endif
 
-        if (vulkan_debug && !strcmp(extension_prop.extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+        if (vulkan_debug && !strcmp(extension_prop.extensionName, "VK_EXT_debug_utils"))
         {
-            extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            extensions.push_back("VK_EXT_debug_utils");
             continue;
         }
+    }
+
+    if (surface && swapchain)
+    {
+        vulkan_supports_swapchain = true;
     }
 
     VkApplicationInfo app_info = {};
@@ -690,73 +693,46 @@ static PyObject *vulkan_instance_check()
     app_info.applicationVersion = 0xDEADBEEF;
     app_info.pEngineName = app_info.pApplicationName;
     app_info.engineVersion = 0xDEADBEEF;
-    app_info.apiVersion = VK_API_VERSION_1_3;
+    app_info.apiVersion = VK_API_VERSION_1_1;
 
-    for (;;)
-    {
-        VkInstanceCreateInfo instance_create_info = {};
-        instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instance_create_info.pApplicationInfo = &app_info;
+    VkInstanceCreateInfo instance_create_info = {};
+    instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+    instance_create_info.pApplicationInfo = &app_info;
 
-        instance_create_info.enabledExtensionCount = (uint32_t)extensions.size();
-        instance_create_info.ppEnabledExtensionNames = extensions.data();
-        instance_create_info.enabledLayerCount = (uint32_t)layers.size();
-        instance_create_info.ppEnabledLayerNames = layers.data();
+    instance_create_info.enabledExtensionCount = (uint32_t)extensions.size();
+    instance_create_info.ppEnabledExtensionNames = extensions.data();
+    instance_create_info.enabledLayerCount = (uint32_t)layers.size();
+    instance_create_info.ppEnabledLayerNames = layers.data();
 #ifdef __APPLE__
-#ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-        instance_create_info.flags = VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-#endif
+    instance_create_info.flags = 0x00000001 /* VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR */;
 #endif
 
-        VkResult result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
-        if (result != VK_SUCCESS)
-        {
-            if (result == VK_ERROR_EXTENSION_NOT_PRESENT && !extensions.empty())
-            {
-                if (!vulkan_swapchain_extensions.empty())
-                {
-                    for (const std::string &extension_name : vulkan_swapchain_extensions)
-                    {
-                        extensions.erase(std::remove(extensions.begin(), extensions.end(), extension_name), extensions.end());
-                    }
-                }
-                else
-                {
-                    extensions.clear();
-                }
-                vulkan_supports_swapchain = false;
-                continue;
-            }
-            else if (result == VK_ERROR_LAYER_NOT_PRESENT && !layers.empty())
-            {
-                layers.clear();
-                vulkan_debug = false;
-                continue;
-            }
-            return PyErr_Format(PyExc_Exception, "unable to create vulkan instance: %d", result);
-        }
-
-        vulkan_debug_messages = {};
-
-        if (vulkan_debug)
-        {
-            VkDebugUtilsMessengerEXT messenger;
-            VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = {};
-            debug_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-            debug_messenger_create_info.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                                             VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |*/
-                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-            debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-            debug_messenger_create_info.pfnUserCallback = vulkan_debug_message_callback;
-            PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
-                vulkan_instance, "vkCreateDebugUtilsMessengerEXT");
-            if (func)
-                func(vulkan_instance, &debug_messenger_create_info, NULL,
-                     &messenger); // no need to check for error, in the worst
-                                  // case we will get messages on stdout
-        }
-        break;
+    VkResult result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);
+    if (result != VK_SUCCESS)
+    {
+        return PyErr_Format(PyExc_Exception, "unable to create vulkan instance: %d", result);
     }
+
+    vulkan_debug_messages = {};
+
+    if (vulkan_debug)
+    {
+        VkDebugUtilsMessengerEXT messenger;
+        VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info = {};
+        debug_messenger_create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        debug_messenger_create_info.messageSeverity = /*VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                                         VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |*/
+            VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        debug_messenger_create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        debug_messenger_create_info.pfnUserCallback = vulkan_debug_message_callback;
+        PFN_vkCreateDebugUtilsMessengerEXT func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
+            vulkan_instance, "vkCreateDebugUtilsMessengerEXT");
+        if (func)
+            func(vulkan_instance, &debug_messenger_create_info, NULL,
+                 &messenger); // no need to check for error, in the worst
+                              // case we will get messages on stdout
+    }
+
     Py_RETURN_NONE;
 }
 
@@ -768,6 +744,70 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
     }
 
     vkGetPhysicalDeviceFeatures(self->physical_device, &self->features);
+
+    std::vector<const char *> extensions;
+    uint32_t extensions_count;
+    vkEnumerateDeviceExtensionProperties(self->physical_device, NULL, &extensions_count, NULL);
+    std::vector<VkExtensionProperties> available_extensions(extensions_count);
+    vkEnumerateDeviceExtensionProperties(self->physical_device, NULL, &extensions_count, available_extensions.data());
+
+    bool mutable_valve = false;
+    bool mutable_ext = false;
+    bool descriptor_indexing = false;
+
+    for (VkExtensionProperties &extension_prop : available_extensions)
+    {
+#ifdef VK_EXT_mutable_descriptor_type
+        if (!strcmp(extension_prop.extensionName, "VK_EXT_mutable_descriptor_type"))
+        {
+            extensions.push_back("VK_EXT_mutable_descriptor_type");
+            mutable_ext = true;
+            continue;
+        }
+#endif
+
+#ifdef VK_VALVE_mutable_descriptor_type
+        if (!strcmp(extension_prop.extensionName, "VK_VALVE_mutable_descriptor_type"))
+        {
+            extensions.push_back("VK_VALVE_mutable_descriptor_type");
+            mutable_valve = true;
+            continue;
+        }
+#endif
+
+#ifdef VK_EXT_descriptor_indexing
+        if (!strcmp(extension_prop.extensionName, "VK_EXT_descriptor_indexing"))
+        {
+            extensions.push_back("VK_EXT_descriptor_indexing");
+            descriptor_indexing = true;
+            continue;
+        }
+#endif
+
+#ifdef __APPLE__
+        if (!strcmp(extension_prop.extensionName, "VK_KHR_portability_subset"))
+        {
+            extensions.push_back("VK_KHR_portability_subset");
+            continue;
+        }
+#endif
+    }
+
+    std::vector<const char *> layers;
+    uint32_t layers_count;
+    vkEnumerateDeviceLayerProperties(self->physical_device, &layers_count, NULL);
+    std::vector<VkLayerProperties> available_layers(layers_count);
+    vkEnumerateDeviceLayerProperties(self->physical_device, &layers_count, available_layers.data());
+    for (VkLayerProperties &layer_prop : available_layers)
+    {
+        if (vulkan_debug && !strcmp(layer_prop.layerName, "VK_LAYER_KHRONOS_validation"))
+        {
+            layers.push_back("VK_LAYER_KHRONOS_validation");
+            continue;
+        }
+    }
+
+    self->supports_bindless = descriptor_indexing && (mutable_ext || mutable_valve);
 
     uint32_t num_queue_families = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(self->physical_device, &num_queue_families, nullptr);
@@ -787,52 +827,89 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             queue_create_info.queueFamilyIndex = queue_family_index;
             float priorities[] = {1.0f};
             queue_create_info.pQueuePriorities = priorities;
+
             VkDeviceCreateInfo create_info = {};
             create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
             create_info.pQueueCreateInfos = &queue_create_info;
             create_info.queueCreateInfoCount = 1;
 
-            VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE MutableDescriptorTypeFeatures = {};
-            MutableDescriptorTypeFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
-            MutableDescriptorTypeFeatures.mutableDescriptorType = VK_TRUE;
-
-            VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {};
-            descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
-            descriptorIndexingFeatures.pNext = &MutableDescriptorTypeFeatures;
-            descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
-            descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
-            descriptorIndexingFeatures.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
-
-            VkPhysicalDeviceFeatures2 deviceFeatures = {};
-            deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            deviceFeatures.pNext = &descriptorIndexingFeatures;
-
-            create_info.pNext = &deviceFeatures;
-
-            std::vector<const char *> extensions;
             if (vulkan_supports_swapchain)
-                extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-#ifdef __APPLE__
-            extensions.push_back("VK_KHR_portability_subset");
-#endif
-            extensions.push_back("VK_EXT_mutable_descriptor_type");
-            extensions.push_back("VK_EXT_descriptor_indexing");
-            vulkan_bindless = true;
+            {
+                extensions.push_back("VK_KHR_swapchain");
+            }
 
-            std::vector<const char *> layers;
-            layers.push_back("VK_LAYER_KHRONOS_validation");
+            VkDevice device;
             create_info.enabledExtensionCount = (uint32_t)extensions.size();
             create_info.ppEnabledExtensionNames = extensions.data();
             create_info.enabledLayerCount = (uint32_t)layers.size();
             create_info.ppEnabledLayerNames = layers.data();
 
-            VkDevice device;
-            VkResult result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
+            VkResult result;
+
+            if (self->supports_bindless)
+            {
+                if (mutable_ext)
+                {
+#ifdef VK_EXT_descriptor_indexing
+                    VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_type_features = {};
+                    mutable_descriptor_type_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
+                    mutable_descriptor_type_features.mutableDescriptorType = VK_TRUE;
+#ifdef VK_EXT_descriptor_indexing
+                    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {};
+                    descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+                    descriptor_indexing_features.pNext = &mutable_descriptor_type_features;
+                    descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
+                    descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+
+                    VkPhysicalDeviceFeatures2 deviceFeatures = {};
+                    deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                    deviceFeatures.pNext = &descriptor_indexing_features;
+
+                    create_info.pNext = &deviceFeatures;
+                    result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
+#endif
+#endif
+                }
+                else if (mutable_valve)
+                {
+#ifdef VK_VALVE_mutable_descriptor_type
+                    VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_type_features = {};
+                    mutable_descriptor_type_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
+                    mutable_descriptor_type_features.mutableDescriptorType = VK_TRUE;
+#ifdef VK_EXT_descriptor_indexing
+                    VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {};
+                    descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+                    descriptor_indexing_features.pNext = &mutable_descriptor_type_features;
+                    descriptor_indexing_features.descriptorBindingPartiallyBound = VK_TRUE;
+                    descriptor_indexing_features.runtimeDescriptorArray = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+                    descriptor_indexing_features.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
+
+                    VkPhysicalDeviceFeatures2 deviceFeatures = {};
+                    deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+                    deviceFeatures.pNext = &descriptor_indexing_features;
+
+                    create_info.pNext = &deviceFeatures;
+                    result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
+#endif
+#endif
+                }
+            }
+            else
+            {
+                result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
+            }
+            
             if (result != VK_SUCCESS)
             {
                 PyErr_Format(PyExc_Exception, "Unable to create vulkan device");
@@ -876,6 +953,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             self->queue_family_index = queue_family_index;
             self->command_pool = command_pool;
             self->command_buffer = command_buffer;
+
             return self;
         }
     }
@@ -1722,7 +1800,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     if (!py_device)
         return NULL;
 
-    if (bindless > 0 && !vulkan_bindless)
+    if (bindless > 0 && !py_device->supports_bindless)
     {
         return PyErr_Format(PyExc_ValueError, "Bindless Compute pipeline is not supported");
     }
@@ -1851,7 +1929,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
             layout_binding.binding = i;
             layout_binding.descriptorCount = 1;
             layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            // layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
             layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             layout_bindings.push_back(layout_binding);
             layout_bindings_flags.push_back(layout_binding_flags);
@@ -1891,38 +1968,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             mutable_list.push_back(mutable_descriptor_type_list);
         }
-        /*layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
-        layout_binding.descriptorCount = bindle;
-        layout_binding.binding = 2048;
-        layout_bindings.push_back(layout_binding);
-        layout_bindings_flags.push_back(layout_binding_flags);
-        layout_binding.binding = 4096;
-        layout_bindings.push_back(layout_binding);
-        layout_bindings_flags.push_back(layout_binding_flags);*/
-
-        /*VkMutableDescriptorTypeListVALVE mutable_descriptor_type_list = {};
-        mutable_descriptor_type_list.descriptorTypeCount = 6;
-        mutable_descriptor_type_list.pDescriptorTypes = all_mutable_types;
-        for (uint32_t i = 0; i < (bindless * 3); i++)
-        {
-            mutable_list.push_back(mutable_descriptor_type_list);
-        }*/
-
-        /*
-        mutable_descriptor_type_list.descriptorTypeCount = 3;
-        mutable_descriptor_type_list.pDescriptorTypes = srv_mutable_types;
-        for (uint32_t i = 0; i < 1024; i++)
-        {
-            mutable_list.push_back(mutable_descriptor_type_list);
-        }
-
-        mutable_descriptor_type_list.descriptorTypeCount = 3;
-        mutable_descriptor_type_list.pDescriptorTypes = uav_mutable_types;
-        for (uint32_t i = 0; i < 1024; i++)
-        {
-            mutable_list.push_back(mutable_descriptor_type_list);
-        }
-        */
     }
 
     binding_offset = 0;

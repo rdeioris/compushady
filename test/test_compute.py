@@ -338,8 +338,8 @@ class ComputeTests(unittest.TestCase):
     def test_bindless_legacy(self):
         shader = hlsl.compile(
             """
-        Buffer<uint> buffers[] : register(t0);
-        RWBuffer<uint> targets[] : register(u0);
+        Buffer<uint> buffers[];
+        RWBuffer<uint> targets[];
 
         [numthreads(1, 1, 1)]
         void main(uint3 tid : SV_DispatchThreadID)
@@ -359,6 +359,49 @@ class ComputeTests(unittest.TestCase):
         compute.bind_uav(0, b_output)
 
         for i in range(0, 64):
+            b = Buffer(4, format=R32_UINT)
+            b_upload.upload(struct.pack("<I", i))
+            b_upload.copy_to(b)
+            compute.bind_srv(i, b)
+
+        compute.dispatch(64, 1, 1)
+
+        b_output.copy_to(b_readback)
+
+        self.assertEqual(
+            struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
+        )
+
+    def test_bindless_legacy_mixed(self):
+        shader = hlsl.compile(
+            """
+        Buffer<uint> buffers[];
+        RWBuffer<uint> targets[];
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            Buffer<uint> buffer0 = buffers[tid.x];
+            targets[0][tid.x] = buffer0[0];
+        }
+        """
+        )
+
+        b_upload = Buffer(4, HEAP_UPLOAD)
+        b_output = Buffer(4 * 64, format=R32_UINT)
+        b_readback = Buffer(b_output.size, HEAP_READBACK)
+
+        b0 = Buffer(4, format=R32_UINT)
+        b_upload.upload(struct.pack("<I", 0))
+        b_upload.copy_to(b0)
+
+        b1 = Buffer(4, format=R32_UINT)
+        b_upload.upload(struct.pack("<I", 1))
+        b_upload.copy_to(b1)
+
+        compute = Compute(shader, srv=[b0, b1], uav=[b_output], bindless=True)
+
+        for i in range(2, 64):
             b = Buffer(4, format=R32_UINT)
             b_upload.upload(struct.pack("<I", i))
             b_upload.copy_to(b)
