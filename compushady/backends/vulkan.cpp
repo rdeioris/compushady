@@ -792,8 +792,8 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             create_info.pQueueCreateInfos = &queue_create_info;
             create_info.queueCreateInfoCount = 1;
 
-            VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT MutableDescriptorTypeFeatures = {};
-            MutableDescriptorTypeFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
+            VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE MutableDescriptorTypeFeatures = {};
+            MutableDescriptorTypeFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
             MutableDescriptorTypeFeatures.mutableDescriptorType = VK_TRUE;
 
             VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {};
@@ -1743,9 +1743,9 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     const VkDescriptorType srv_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
     const VkDescriptorType uav_mutable_types[] = {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
 
-    std::vector<VkMutableDescriptorTypeListEXT> mutable_list;
+    std::vector<VkMutableDescriptorTypeListVALVE> mutable_list;
 
-    VkMutableDescriptorTypeCreateInfoEXT mutable_descriptor_type_create_info = {};
+    VkMutableDescriptorTypeCreateInfoVALVE mutable_descriptor_type_create_info = {};
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = {};
 
     VkShaderModuleCreateInfo shader_create_info = {};
@@ -1820,19 +1820,19 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         if (cbv.size() > bindless)
         {
             PyBuffer_Release(&view);
-            return PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)cbv.size(), bindless);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Compute Pipeline (max: %u)", (uint32_t)cbv.size(), bindless);
         }
 
         if (srv.size() > bindless)
         {
             PyBuffer_Release(&view);
-            return PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)srv.size(), bindless);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Compute Pipeline (max: %u)", (uint32_t)srv.size(), bindless);
         }
 
         if (uav.size() > bindless)
         {
             PyBuffer_Release(&view);
-            return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)uav.size(), bindless);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (uint32_t)uav.size(), bindless);
         }
 
         VkDescriptorBindingFlags layout_binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
@@ -1844,7 +1844,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         layout_bindings.push_back(layout_binding);
         layout_bindings_flags.push_back(layout_binding_flags);
-        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
+        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
         layout_binding.binding = 1024;
         layout_bindings.push_back(layout_binding);
         layout_bindings_flags.push_back(layout_binding_flags);
@@ -1852,7 +1852,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         layout_bindings.push_back(layout_binding);
         layout_bindings_flags.push_back(layout_binding_flags);
 
-        VkMutableDescriptorTypeListEXT mutable_descriptor_type_list = {};
+        VkMutableDescriptorTypeListVALVE mutable_descriptor_type_list = {};
         for (uint32_t i = 0; i < 1; i++)
         {
             mutable_list.push_back(mutable_descriptor_type_list);
@@ -2069,7 +2069,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     if (bindless > 0)
     {
-        mutable_descriptor_type_create_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT;
+        mutable_descriptor_type_create_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_VALVE;
         mutable_descriptor_type_create_info.mutableDescriptorTypeListCount = (uint32_t)mutable_list.size();
         mutable_descriptor_type_create_info.pMutableDescriptorTypeLists = mutable_list.data();
 
@@ -3261,7 +3261,7 @@ static PyObject *vulkan_Compute_bind_cbv(vulkan_Compute *self, PyObject *args)
 
 static PyObject *vulkan_Compute_bind_srv(vulkan_Compute *self, PyObject *args)
 {
-    UINT index;
+    uint32_t index;
     PyObject *py_resource;
     if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
         return NULL;
@@ -3328,14 +3328,14 @@ static PyObject *vulkan_Compute_bind_srv(vulkan_Compute *self, PyObject *args)
         printf("OOOOPS\n");
     }
 
-    printf("BBBBB %d %d\n", self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
+    printf("BBBBB %u %d %d\n", index, self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
 
     Py_RETURN_NONE;
 }
 
 static PyObject *vulkan_Compute_bind_uav(vulkan_Compute *self, PyObject *args)
 {
-    UINT index;
+    uint32_t index;
     PyObject *py_resource;
     if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
         return NULL;
