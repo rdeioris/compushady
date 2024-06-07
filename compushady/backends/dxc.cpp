@@ -18,7 +18,7 @@
 
 #include "spirv_cross/spirv_msl.hpp"
 
-static PyObject* dxc_generate_exception(HRESULT hr, const char* prefix)
+static PyObject *dxc_generate_exception(HRESULT hr, const char *prefix)
 {
 #ifdef _WIN32
 	_com_error err(hr);
@@ -28,12 +28,12 @@ static PyObject* dxc_generate_exception(HRESULT hr, const char* prefix)
 #endif
 }
 
-static PyObject* dxc_compile(PyObject* self, PyObject* args)
+static PyObject *dxc_compile(PyObject *self, PyObject *args)
 {
 	Py_buffer view;
-	PyObject* py_entry_point;
+	PyObject *py_entry_point;
 	int shader_binary_type;
-	PyObject* py_target;
+	PyObject *py_target;
 	if (!PyArg_ParseTuple(args, "s*UiU", &view, &py_entry_point, &shader_binary_type, &py_target))
 		return NULL;
 
@@ -62,23 +62,23 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return PyErr_Format(PyExc_Exception, "unable to load dxcompiler library");
 	}
 
-	IDxcLibrary* dxc_library;
-	HRESULT hr = dxcompiler_lib_create_instance_proc(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void**)&dxc_library);
+	IDxcLibrary *dxc_library;
+	HRESULT hr = dxcompiler_lib_create_instance_proc(CLSID_DxcLibrary, __uuidof(IDxcLibrary), (void **)&dxc_library);
 	if (hr != S_OK)
 	{
 		return dxc_generate_exception(hr, "unable to create DXC library instance");
 	}
 
 	// compile the shader
-	IDxcCompiler* dxc_compiler;
-	hr = dxcompiler_lib_create_instance_proc(CLSID_DxcCompiler, __uuidof(IDxcCompiler), (void**)&dxc_compiler);
+	IDxcCompiler *dxc_compiler;
+	hr = dxcompiler_lib_create_instance_proc(CLSID_DxcCompiler, __uuidof(IDxcCompiler), (void **)&dxc_compiler);
 	if (hr != S_OK)
 	{
 		dxc_library->Release();
 		return dxc_generate_exception(hr, "unable to create DXC compiler instance");
 	}
 
-	IDxcBlobEncoding* blob_source;
+	IDxcBlobEncoding *blob_source;
 	hr = dxc_library->CreateBlobWithEncodingOnHeapCopy(view.buf, (UINT32)view.len, CP_UTF8, &blob_source);
 
 	if (hr != S_OK)
@@ -88,7 +88,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return dxc_generate_exception(hr, "unable to create DXC blob");
 	}
 
-	wchar_t* entry_point = PyUnicode_AsWideCharString(py_entry_point, NULL);
+	wchar_t *entry_point = PyUnicode_AsWideCharString(py_entry_point, NULL);
 	if (!entry_point)
 	{
 		blob_source->Release();
@@ -97,7 +97,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return NULL;
 	}
 
-	wchar_t* target = PyUnicode_AsWideCharString(py_target, NULL);
+	wchar_t *target = PyUnicode_AsWideCharString(py_target, NULL);
 	if (!target)
 	{
 		PyMem_Free(entry_point);
@@ -107,7 +107,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return NULL;
 	}
 
-	std::vector<const wchar_t*> arguments;
+	std::vector<const wchar_t *> arguments;
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_SPIRV || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL || shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_GLSL)
 	{
 		arguments.push_back(L"-spirv");
@@ -125,7 +125,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		arguments.push_back(L"-fvk-use-scalar-layout");
 	}
 
-	IDxcOperationResult* result;
+	IDxcOperationResult *result;
 	hr = dxc_compiler->Compile(blob_source, NULL, entry_point, target, arguments.data(), (UINT32)arguments.size(), NULL, 0, NULL, &result);
 
 	PyMem_Free(target);
@@ -140,10 +140,10 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	{
 		if (result)
 		{
-			IDxcBlobEncoding* blob_error;
+			IDxcBlobEncoding *blob_error;
 			if (result->GetErrorBuffer(&blob_error) == S_OK)
 			{
-				PyObject* py_unicode_error = PyUnicode_FromStringAndSize((const char*)blob_error->GetBufferPointer(), blob_error->GetBufferSize());
+				PyObject *py_unicode_error = PyUnicode_FromStringAndSize((const char *)blob_error->GetBufferPointer(), blob_error->GetBufferSize());
 				PyErr_Format(PyExc_ValueError, "%U", py_unicode_error);
 				Py_DECREF(py_unicode_error);
 			}
@@ -161,7 +161,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		return NULL;
 	}
 
-	IDxcBlob* compiled_blob = NULL;
+	IDxcBlob *compiled_blob = NULL;
 	result->GetResult(&compiled_blob);
 
 #ifdef _WIN32
@@ -176,11 +176,11 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		DxcCreateInstanceProc dxil_create_instance_proc = (DxcCreateInstanceProc)GetProcAddress(dxil, "DxcCreateInstance");
 		if (dxil_create_instance_proc)
 		{
-			IDxcValidator* validator;
-			hr = dxil_create_instance_proc(CLSID_DxcValidator, __uuidof(IDxcValidator), (void**)&validator);
+			IDxcValidator *validator;
+			hr = dxil_create_instance_proc(CLSID_DxcValidator, __uuidof(IDxcValidator), (void **)&validator);
 			if (hr == S_OK)
 			{
-				IDxcOperationResult* verify_result;
+				IDxcOperationResult *verify_result;
 				validator->Validate(compiled_blob, DxcValidatorFlags_InPlaceEdit, &verify_result);
 				if (verify_result)
 				{
@@ -191,13 +191,13 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 		}
 	}
 #endif
-	PyObject* py_compiled_blob = NULL;
-	PyObject* py_exc = NULL;
+	PyObject *py_compiled_blob = NULL;
+	PyObject *py_exc = NULL;
 	if (shader_binary_type == COMPUSHADY_SHADER_BINARY_TYPE_MSL)
 	{
 		try
 		{
-			spirv_cross::CompilerMSL msl((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
+			spirv_cross::CompilerMSL msl((uint32_t *)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
 			uint32_t x = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 0);
 			uint32_t y = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 1);
 			uint32_t z = msl.get_execution_mode_argument(spv::ExecutionMode::ExecutionModeLocalSize, 2);
@@ -211,7 +211,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 
 			std::vector<uint32_t> samplers_keys;
 
-			auto track_bindings = [&](spirv_cross::Resource& resource)
+			auto track_bindings = [&](spirv_cross::Resource &resource)
 			{
 				const uint32_t binding = msl.get_decoration(resource.id, spv::Decoration::DecorationBinding);
 				spv::StorageClass storage_class = msl.get_storage_class(resource.id);
@@ -319,7 +319,7 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 			std::string msl_code = msl.compile();
 			py_compiled_blob = Py_BuildValue("N(III)", PyBytes_FromStringAndSize(msl_code.data(), msl_code.length()), x, y, z);
 		}
-		catch (const std::exception& e)
+		catch (const std::exception &e)
 		{
 			py_exc = PyErr_Format(PyExc_Exception, "SPIRV-Cross: %s", e.what());
 		}
@@ -328,18 +328,18 @@ static PyObject* dxc_compile(PyObject* self, PyObject* args)
 	{
 		try
 		{
-			spirv_cross::CompilerGLSL glsl((uint32_t*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
+			spirv_cross::CompilerGLSL glsl((uint32_t *)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize() / 4);
 			std::string glsl_code = glsl.compile();
 			py_compiled_blob = PyBytes_FromStringAndSize(glsl_code.data(), glsl_code.length());
 		}
-		catch (const std::exception& e)
+		catch (const std::exception &e)
 		{
 			py_exc = PyErr_Format(PyExc_Exception, "SPIRV-Cross: %s", e.what());
 		}
 	}
 	else
 	{
-		py_compiled_blob = PyBytes_FromStringAndSize((const char*)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize());
+		py_compiled_blob = PyBytes_FromStringAndSize((const char *)compiled_blob->GetBufferPointer(), compiled_blob->GetBufferSize());
 	}
 
 	compiled_blob->Release();
@@ -370,8 +370,7 @@ static struct PyModuleDef compushady_backends_dxc_module = {
 	"dxc",
 	NULL,
 	-1,
-	compushady_backends_dxc_methods
-};
+	compushady_backends_dxc_methods};
 
 PyMODINIT_FUNC
 PyInit_dxc(void)

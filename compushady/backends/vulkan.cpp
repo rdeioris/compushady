@@ -802,6 +802,11 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
             descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
             descriptorIndexingFeatures.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingUniformTexelBufferUpdateAfterBind = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingStorageTexelBufferUpdateAfterBind = VK_TRUE;
 
             VkPhysicalDeviceFeatures2 deviceFeatures = {};
             deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
@@ -815,7 +820,6 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
 #ifdef __APPLE__
             extensions.push_back("VK_KHR_portability_subset");
 #endif
-            printf("enabling mutable\n");
             extensions.push_back("VK_EXT_mutable_descriptor_type");
             extensions.push_back("VK_EXT_descriptor_indexing");
             vulkan_bindless = true;
@@ -1742,6 +1746,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     const VkDescriptorType srv_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
     const VkDescriptorType uav_mutable_types[] = {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+    const VkDescriptorType all_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
 
     std::vector<VkMutableDescriptorTypeListVALVE> mutable_list;
 
@@ -1838,26 +1843,72 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         VkDescriptorBindingFlags layout_binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 
         VkDescriptorSetLayoutBinding layout_binding = {};
-        layout_binding.binding = 0;
-        layout_binding.descriptorCount = bindless;
-        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        layout_bindings.push_back(layout_binding);
-        layout_bindings_flags.push_back(layout_binding_flags);
-        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
-        layout_binding.binding = 1024;
-        layout_bindings.push_back(layout_binding);
-        layout_bindings_flags.push_back(layout_binding_flags);
-        layout_binding.binding = 2048;
-        layout_bindings.push_back(layout_binding);
-        layout_bindings_flags.push_back(layout_binding_flags);
-
         VkMutableDescriptorTypeListVALVE mutable_descriptor_type_list = {};
-        for (uint32_t i = 0; i < 1; i++)
+        mutable_descriptor_type_list.descriptorTypeCount = 0;
+        // CBV
+        for (uint32_t i = 0; i < bindless; i++)
+        {
+            layout_binding.binding = i;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            // layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+            layout_bindings_flags.push_back(layout_binding_flags);
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }
+        // SRV
+        mutable_descriptor_type_list.descriptorTypeCount = 3;
+        mutable_descriptor_type_list.pDescriptorTypes = srv_mutable_types;
+        for (uint32_t i = 0; i < bindless; i++)
+        {
+            layout_binding.binding = 1024 + i;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+            layout_bindings_flags.push_back(layout_binding_flags);
+        }
+        // this is a bit annoying as the index in the mutable list is given by the binding number
+        for (uint32_t i = 0; i < 1024; i++)
         {
             mutable_list.push_back(mutable_descriptor_type_list);
         }
+        // UAV
+        mutable_descriptor_type_list.descriptorTypeCount = 3;
+        mutable_descriptor_type_list.pDescriptorTypes = uav_mutable_types;
+        for (uint32_t i = 0; i < bindless; i++)
+        {
+            layout_binding.binding = 2048 + i;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+            layout_bindings_flags.push_back(layout_binding_flags);
+        }
+        // again, this is a bit annoying as the index in the mutable list is given by the binding number
+        for (uint32_t i = 0; i < 1024; i++)
+        {
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }
+        /*layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+        layout_binding.descriptorCount = bindle;
+        layout_binding.binding = 2048;
+        layout_bindings.push_back(layout_binding);
+        layout_bindings_flags.push_back(layout_binding_flags);
+        layout_binding.binding = 4096;
+        layout_bindings.push_back(layout_binding);
+        layout_bindings_flags.push_back(layout_binding_flags);*/
 
+        /*VkMutableDescriptorTypeListVALVE mutable_descriptor_type_list = {};
+        mutable_descriptor_type_list.descriptorTypeCount = 6;
+        mutable_descriptor_type_list.pDescriptorTypes = all_mutable_types;
+        for (uint32_t i = 0; i < (bindless * 3); i++)
+        {
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }*/
+
+        /*
         mutable_descriptor_type_list.descriptorTypeCount = 3;
         mutable_descriptor_type_list.pDescriptorTypes = srv_mutable_types;
         for (uint32_t i = 0; i < 1024; i++)
@@ -1871,6 +1922,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             mutable_list.push_back(mutable_descriptor_type_list);
         }
+        */
     }
 
     binding_offset = 0;
@@ -1988,6 +2040,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         layout_bindings.push_back(layout_binding);
     }
 
+    // static descriptor pool when not in bindless mode
     if (bindless == 0)
     {
         for (std::pair<VkDescriptorType, std::vector<void *>> pair : descriptors)
@@ -1997,31 +2050,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
             pool_size.type = pair.first;
             pool_sizes.push_back(pool_size);
         }
-    }
-    else
-    {
-        VkDescriptorPoolSize pool_size = {};
-        pool_size.descriptorCount = 4096;//bindless;
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_sizes.push_back(pool_size);
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        pool_sizes.push_back(pool_size);
-        if (descriptors.find(VK_DESCRIPTOR_TYPE_SAMPLER) != descriptors.end())
-        {
-            pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
-            pool_sizes.push_back(pool_size);
-        }
-        printf("pool sizes %u\n", pool_sizes.size());
     }
 
     const char *entry_point = vulkan_get_spirv_entry_point(shader_create_info.pCode, shader_create_info.codeSize);
@@ -2093,11 +2121,14 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     VkDescriptorPoolCreateInfo pool_info = {};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = (uint32_t)pool_sizes.size();
-    pool_info.pPoolSizes = pool_sizes.data();
     if (bindless > 0)
     {
         pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    }
+    else
+    {
+        pool_info.poolSizeCount = (uint32_t)pool_sizes.size();
+        pool_info.pPoolSizes = pool_sizes.data();
     }
     pool_info.maxSets = 1;
 
@@ -2108,11 +2139,19 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Pool");
     }
 
+    const uint32_t descriptor_counts = 64 * 3;
+
     VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
     descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     descriptor_set_allocate_info.descriptorPool = py_compute->descriptor_pool;
     descriptor_set_allocate_info.descriptorSetCount = 1;
     descriptor_set_allocate_info.pSetLayouts = &py_compute->descriptor_set_layout;
+
+    VkDescriptorSetVariableDescriptorCountAllocateInfoEXT count_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT};
+    count_info.descriptorSetCount = 1;
+    count_info.pDescriptorCounts = &descriptor_counts;
+
+    // descriptor_set_allocate_info.pNext = &count_info;
 
     result = vkAllocateDescriptorSets(
         py_device->device, &descriptor_set_allocate_info, &py_compute->descriptor_set);
@@ -2129,8 +2168,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             write_descriptor_set.dstSet = py_compute->descriptor_set;
         }
-
-        printf("descriptor write: %u\n", write_descriptor_sets.size());
 
         vkUpdateDescriptorSets(py_device->device, (uint32_t)write_descriptor_sets.size(),
                                write_descriptor_sets.data(), 0, NULL);
@@ -2186,8 +2223,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     py_compute->py_srv_list = PyList_New(num_srv);
     py_compute->py_uav_list = PyList_New(num_uav);
     py_compute->py_samplers_list = PyList_New(0);
-
-    printf("CBV+SRV+UAV: %u %u %u\n", num_cbv, num_srv, num_uav);
 
     for (size_t i = 0; i < num_cbv; i++)
     {
@@ -3111,7 +3146,7 @@ static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
 {
     uint32_t x, y, z;
     Py_buffer view = {};
-    if (!PyArg_ParseTuple(args, "III|y*", &x, &y, &z, &view))
+    if (!PyArg_ParseTuple(args, "IIIy*", &x, &y, &z, &view))
         return NULL;
 
     if (view.len > 0)
@@ -3160,7 +3195,8 @@ static PyObject *vulkan_Compute_dispatch_indirect(vulkan_Compute *self, PyObject
 {
     PyObject *py_indirect_buffer;
     uint32_t offset;
-    if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+    Py_buffer view = {};
+    if (!PyArg_ParseTuple(args, "OIy*", &py_indirect_buffer, &offset, &view))
         return NULL;
 
     int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&vulkan_Resource_Type);
@@ -3187,6 +3223,10 @@ static PyObject *vulkan_Compute_dispatch_indirect(vulkan_Compute *self, PyObject
         self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, self->pipeline);
     vkCmdBindDescriptorSets(self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                             self->pipeline_layout, 0, 1, &self->descriptor_set, 0, nullptr);
+    if (view.len > 0)
+    {
+        vkCmdPushConstants(self->py_device->command_buffer, self->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, (uint32_t)view.len, view.buf);
+    }
     vkCmdDispatchIndirect(self->py_device->command_buffer, py_resource->buffer, offset);
     vkEndCommandBuffer(self->py_device->command_buffer);
 
@@ -3288,8 +3328,6 @@ static PyObject *vulkan_Compute_bind_srv(vulkan_Compute *self, PyObject *args)
 
     vulkan_Resource *py_srv = (vulkan_Resource *)py_resource;
 
-    printf("AAAA %d %d\n", self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
-
     VkWriteDescriptorSet write_descriptor_set = {};
     write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write_descriptor_set.descriptorCount = 1;
@@ -3315,20 +3353,11 @@ static PyObject *vulkan_Compute_bind_srv(vulkan_Compute *self, PyObject *args)
     }
     write_descriptor_set.dstSet = self->descriptor_set;
 
-    printf("*****\n");
-
     vkUpdateDescriptorSets(self->py_device->device, 1,
                            &write_descriptor_set, 0, NULL);
 
-    printf("!!!!!\n");
-
     Py_INCREF(py_resource);
-    if (PyList_SetItem(self->py_srv_list, index, py_resource))
-    {
-        printf("OOOOPS\n");
-    }
-
-    printf("BBBBB %u %d %d\n", index, self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
+    PyList_SetItem(self->py_srv_list, index, py_resource);
 
     Py_RETURN_NONE;
 }
@@ -3386,8 +3415,6 @@ static PyObject *vulkan_Compute_bind_uav(vulkan_Compute *self, PyObject *args)
         write_descriptor_set.pImageInfo = &py_uav->descriptor_image_info;
     }
     write_descriptor_set.dstSet = self->descriptor_set;
-
-    printf("bind_uav\n");
 
     vkUpdateDescriptorSets(self->py_device->device, 1,
                            &write_descriptor_set, 0, NULL);

@@ -358,7 +358,7 @@ class ComputeTests(unittest.TestCase):
 
         compute.bind_uav(0, b_output)
 
-        for i in range(0, 1):
+        for i in range(0, 64):
             b = Buffer(4, format=R32_UINT)
             b_upload.upload(struct.pack("<I", i))
             b_upload.copy_to(b)
