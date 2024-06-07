@@ -626,6 +626,7 @@ static PyObject *vulkan_instance_check()
 
     bool surface = false;
     bool swapchain = false;
+    bool portability_enumeration = false;
 
     for (VkExtensionProperties &extension_prop : available_extensions)
     {
@@ -655,6 +656,7 @@ static PyObject *vulkan_instance_check()
         if (!strcmp(extension_prop.extensionName, "VK_KHR_portability_enumeration"))
         {
             extensions.push_back("VK_KHR_portability_enumeration");
+            portability_enumeration = true;
             continue;
         }
 #else
@@ -704,7 +706,10 @@ static PyObject *vulkan_instance_check()
     instance_create_info.enabledLayerCount = (uint32_t)layers.size();
     instance_create_info.ppEnabledLayerNames = layers.data();
 #ifdef __APPLE__
-    instance_create_info.flags = 0x00000001 /* VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR */;
+    if (portability_enumeration)
+    {
+    	instance_create_info.flags = 0x00000001 /* VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR */;
+    }
 #endif
 
     VkResult result = vkCreateInstance(&instance_create_info, nullptr, &vulkan_instance);

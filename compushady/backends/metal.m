@@ -416,8 +416,8 @@ static PyMemberDef metal_Swapchain_members[] = {
 static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
 {
     uint32_t x, y, z;
-    Py_buffer view = {};
-    if (!PyArg_ParseTuple(args, "III|y*", &x, &y, &z, &view))
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "IIIy*", &x, &y, &z, &view))
         return NULL;
 
     if (view.len > 0)
@@ -498,7 +498,8 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
 
     PyObject *py_indirect_buffer;
     uint32_t offset;
-    if (!PyArg_ParseTuple(args, "OI", &py_indirect_buffer, &offset))
+    Py_buffer view;
+    if (!PyArg_ParseTuple(args, "OIy*", &py_indirect_buffer, &offset, &view))
         return NULL;
 
     int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&metal_Resource_Type);
@@ -558,6 +559,11 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
     {
         metal_Sampler* py_sampler = self->samplers[i];
         [compute_command_encoder setSamplerState:py_sampler->sampler atIndex:sampler_index++];
+    }
+
+    if (view.len > 0)
+    {
+        [compute_command_encoder setBytes:view.buf length:view.len atIndex:buffer_index++];
     }
 
     [compute_command_encoder
@@ -860,7 +866,7 @@ static PyObject* metal_Device_create_heap(metal_Device* self, PyObject* args)
 
 static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args, PyObject* kwds)
 {
-    const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", "push_size", NULL };
+    const char* kwlist[] = { "shader", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL };
     PyObject* py_msl;
     PyObject* py_cbv = NULL;
     PyObject* py_srv = NULL;
@@ -868,9 +874,10 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     PyObject* py_samplers = NULL;
 
     uint32_t push_size = 0;
+    uint32_t bindless = 0;
 
     if (!PyArg_ParseTupleAndKeywords(
-            args, kwds, "O|OOOOI", (char**)kwlist, &py_msl, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size))
+            args, kwds, "O|OOOOII", (char**)kwlist, &py_msl, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
         return NULL;
 
     if (push_size > 0 && (push_size % 4) != 0)
