@@ -1834,9 +1834,9 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 #elif VK_VALVE_mutable_descriptor_type
     std::vector<VkMutableDescriptorTypeListVALVE> mutable_list;
     VkMutableDescriptorTypeCreateInfoVALVE mutable_descriptor_type_create_info = {};
+#endif
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = {};
-#endif
 #endif
 
     VkShaderModuleCreateInfo shader_create_info = {};
