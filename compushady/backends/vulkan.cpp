@@ -25,16 +25,19 @@
 #define VK_FORMAT_FLOAT(x, size) vulkan_formats[x##_FLOAT] = {VK_FORMAT_##x##_SFLOAT, size}
 #define VK_FORMAT_SRGB(x, size) vulkan_formats[x##_UNORM_SRGB] = {VK_FORMAT_##x##_SRGB, size}
 
-std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
-std::vector<std::string> vulkan_debug_messages;
+static std::unordered_map<uint32_t, std::pair<VkFormat, uint32_t>> vulkan_formats;
+static std::vector<std::string> vulkan_debug_messages;
 
 static bool vulkan_debug = false;
 static VkInstance vulkan_instance = VK_NULL_HANDLE;
 static bool vulkan_supports_swapchain = true;
+static std::vector<std::string> vulkan_swapchain_extensions;
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 static bool vulkan_has_wayland = false;
 #endif
+
+static bool vulkan_bindless = false;
 
 typedef struct vulkan_Device
 {
@@ -103,6 +106,7 @@ typedef struct vulkan_Compute
     PyObject *py_uav_list;
     PyObject *py_samplers_list;
     uint32_t push_constant_size;
+    uint32_t bindless;
 } vulkan_Compute;
 
 typedef struct vulkan_Swapchain
@@ -629,6 +633,7 @@ static PyObject *vulkan_instance_check()
         if (!strcmp(extension_prop.extensionName, VK_KHR_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+            vulkan_swapchain_extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
             continue;
         }
 
@@ -636,28 +641,41 @@ static PyObject *vulkan_instance_check()
         if (!strcmp(extension_prop.extensionName, VK_KHR_WIN32_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+            vulkan_swapchain_extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+            continue;
+        }
 #else
 #ifdef __APPLE__
         if (!strcmp(extension_prop.extensionName, VK_EXT_METAL_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+            vulkan_swapchain_extensions.push_back(VK_EXT_METAL_SURFACE_EXTENSION_NAME);
+            continue;
+        }
 #ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+        if (!strcmp(extension_prop.extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME))
+        {
             extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+            continue;
+        }
 #endif
 #else
         if (!strcmp(extension_prop.extensionName, VK_KHR_XLIB_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
+            vulkan_swapchain_extensions.push_back(VK_KHR_XLIB_SURFACE_EXTENSION_NAME);
             continue;
         }
+
         if (!strcmp(extension_prop.extensionName, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
         {
             extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
+            vulkan_swapchain_extensions.push_back(VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME);
             vulkan_has_wayland = true;
-#endif
-#endif
             continue;
         }
+#endif
+#endif
 
         if (vulkan_debug && !strcmp(extension_prop.extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
         {
@@ -672,7 +690,7 @@ static PyObject *vulkan_instance_check()
     app_info.applicationVersion = 0xDEADBEEF;
     app_info.pEngineName = app_info.pApplicationName;
     app_info.engineVersion = 0xDEADBEEF;
-    app_info.apiVersion = VK_API_VERSION_1_1;
+    app_info.apiVersion = VK_API_VERSION_1_3;
 
     for (;;)
     {
@@ -695,7 +713,17 @@ static PyObject *vulkan_instance_check()
         {
             if (result == VK_ERROR_EXTENSION_NOT_PRESENT && !extensions.empty())
             {
-                extensions.clear();
+                if (!vulkan_swapchain_extensions.empty())
+                {
+                    for (const std::string &extension_name : vulkan_swapchain_extensions)
+                    {
+                        extensions.erase(std::remove(extensions.begin(), extensions.end(), extension_name), extensions.end());
+                    }
+                }
+                else
+                {
+                    extensions.clear();
+                }
                 vulkan_supports_swapchain = false;
                 continue;
             }
@@ -763,12 +791,35 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
             create_info.pQueueCreateInfos = &queue_create_info;
             create_info.queueCreateInfoCount = 1;
+
+            VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT MutableDescriptorTypeFeatures = {};
+            MutableDescriptorTypeFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
+            MutableDescriptorTypeFeatures.mutableDescriptorType = VK_TRUE;
+
+            VkPhysicalDeviceDescriptorIndexingFeatures descriptorIndexingFeatures = {};
+            descriptorIndexingFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+            descriptorIndexingFeatures.pNext = &MutableDescriptorTypeFeatures;
+            descriptorIndexingFeatures.descriptorBindingPartiallyBound = VK_TRUE;
+            descriptorIndexingFeatures.runtimeDescriptorArray = VK_TRUE;
+            descriptorIndexingFeatures.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+
+            VkPhysicalDeviceFeatures2 deviceFeatures = {};
+            deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            deviceFeatures.pNext = &descriptorIndexingFeatures;
+
+            create_info.pNext = &deviceFeatures;
+
             std::vector<const char *> extensions;
             if (vulkan_supports_swapchain)
                 extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 #ifdef __APPLE__
             extensions.push_back("VK_KHR_portability_subset");
 #endif
+            printf("enabling mutable\n");
+            extensions.push_back("VK_EXT_mutable_descriptor_type");
+            extensions.push_back("VK_EXT_descriptor_indexing");
+            vulkan_bindless = true;
+
             std::vector<const char *> layers;
             layers.push_back("VK_LAYER_KHRONOS_validation");
             create_info.enabledExtensionCount = (uint32_t)extensions.size();
@@ -1667,6 +1718,11 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     if (!py_device)
         return NULL;
 
+    if (bindless > 0 && !vulkan_bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Bindless Compute pipeline is not supported");
+    }
+
     std::vector<vulkan_Resource *> cbv;
     std::vector<vulkan_Resource *> srv;
     std::vector<vulkan_Resource *> uav;
@@ -1679,9 +1735,18 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     }
 
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings;
+    std::vector<VkDescriptorBindingFlags> layout_bindings_flags;
     std::vector<VkDescriptorPoolSize> pool_sizes;
     std::unordered_map<VkDescriptorType, std::vector<void *>> descriptors;
     std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
+
+    const VkDescriptorType srv_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
+    const VkDescriptorType uav_mutable_types[] = {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+
+    std::vector<VkMutableDescriptorTypeListEXT> mutable_list;
+
+    VkMutableDescriptorTypeCreateInfoEXT mutable_descriptor_type_create_info = {};
+    VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = {};
 
     VkShaderModuleCreateInfo shader_create_info = {};
     shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1689,14 +1754,128 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     shader_create_info.pCode = (uint32_t *)(view.buf);
 
     uint32_t binding_offset = 0;
+
+    if (bindless == 0)
+    {
+        for (vulkan_Resource *py_resource : cbv)
+        {
+            if (descriptors.find(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) == descriptors.end())
+            {
+                descriptors[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER] = {};
+            }
+            descriptors[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER].push_back(py_resource);
+
+            VkDescriptorSetLayoutBinding layout_binding = {};
+            layout_binding.binding = binding_offset++;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+        }
+
+        binding_offset = 1024;
+        for (vulkan_Resource *py_resource : srv)
+        {
+            VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view
+                                                              ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                                                              : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                        : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            if (descriptors.find(type) == descriptors.end())
+            {
+                descriptors[type] = {};
+            }
+            descriptors[type].push_back(py_resource);
+
+            VkDescriptorSetLayoutBinding layout_binding = {};
+            layout_binding.binding = binding_offset++;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = type;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+        }
+
+        binding_offset = 2048;
+        for (vulkan_Resource *py_resource : uav)
+        {
+            VkDescriptorType type = py_resource->buffer ? py_resource->buffer_view
+                                                              ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
+                                                              : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                        : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            if (descriptors.find(type) == descriptors.end())
+            {
+                descriptors[type] = {};
+            }
+            descriptors[type].push_back(py_resource);
+
+            VkDescriptorSetLayoutBinding layout_binding = {};
+            layout_binding.binding = binding_offset++;
+            layout_binding.descriptorCount = 1;
+            layout_binding.descriptorType = type;
+            layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+            layout_bindings.push_back(layout_binding);
+        }
+    }
+    else
+    {
+        if (cbv.size() > bindless)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)cbv.size(), bindless);
+        }
+
+        if (srv.size() > bindless)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)srv.size(), bindless);
+        }
+
+        if (uav.size() > bindless)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)uav.size(), bindless);
+        }
+
+        VkDescriptorBindingFlags layout_binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+        VkDescriptorSetLayoutBinding layout_binding = {};
+        layout_binding.binding = 0;
+        layout_binding.descriptorCount = bindless;
+        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        layout_bindings.push_back(layout_binding);
+        layout_bindings_flags.push_back(layout_binding_flags);
+        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
+        layout_binding.binding = 1024;
+        layout_bindings.push_back(layout_binding);
+        layout_bindings_flags.push_back(layout_binding_flags);
+        layout_binding.binding = 2048;
+        layout_bindings.push_back(layout_binding);
+        layout_bindings_flags.push_back(layout_binding_flags);
+
+        VkMutableDescriptorTypeListEXT mutable_descriptor_type_list = {};
+        for (uint32_t i = 0; i < 1; i++)
+        {
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }
+
+        mutable_descriptor_type_list.descriptorTypeCount = 3;
+        mutable_descriptor_type_list.pDescriptorTypes = srv_mutable_types;
+        for (uint32_t i = 0; i < 1024; i++)
+        {
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }
+
+        mutable_descriptor_type_list.descriptorTypeCount = 3;
+        mutable_descriptor_type_list.pDescriptorTypes = uav_mutable_types;
+        for (uint32_t i = 0; i < 1024; i++)
+        {
+            mutable_list.push_back(mutable_descriptor_type_list);
+        }
+    }
+
+    binding_offset = 0;
     for (vulkan_Resource *py_resource : cbv)
     {
-        if (descriptors.find(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) == descriptors.end())
-        {
-            descriptors[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER] = {};
-        }
-        descriptors[VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER].push_back(py_resource);
-
         VkWriteDescriptorSet write_descriptor_set = {};
         write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write_descriptor_set.descriptorCount = 1;
@@ -1704,13 +1883,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         write_descriptor_set.dstBinding = binding_offset;
         write_descriptor_set.pBufferInfo = &py_resource->descriptor_buffer_info;
         write_descriptor_sets.push_back(write_descriptor_set);
-
-        VkDescriptorSetLayoutBinding layout_binding = {};
-        layout_binding.binding = binding_offset++;
-        layout_binding.descriptorCount = 1;
-        layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        layout_bindings.push_back(layout_binding);
     }
 
     binding_offset = 1024;
@@ -1720,17 +1892,12 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
                                                           ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
                                                           : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
                                                     : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        if (descriptors.find(type) == descriptors.end())
-        {
-            descriptors[type] = {};
-        }
-        descriptors[type].push_back(py_resource);
 
         VkWriteDescriptorSet write_descriptor_set = {};
         write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write_descriptor_set.descriptorCount = 1;
         write_descriptor_set.descriptorType = type;
-        write_descriptor_set.dstBinding = binding_offset;
+        write_descriptor_set.dstBinding = binding_offset++;
         if (py_resource->buffer)
         {
             if (py_resource->buffer_view)
@@ -1747,13 +1914,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
             write_descriptor_set.pImageInfo = &py_resource->descriptor_image_info;
         }
         write_descriptor_sets.push_back(write_descriptor_set);
-
-        VkDescriptorSetLayoutBinding layout_binding = {};
-        layout_binding.binding = binding_offset++;
-        layout_binding.descriptorCount = 1;
-        layout_binding.descriptorType = type;
-        layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        layout_bindings.push_back(layout_binding);
     }
 
     binding_offset = 2048;
@@ -1763,17 +1923,12 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
                                                           ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
                                                           : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                                                     : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        if (descriptors.find(type) == descriptors.end())
-        {
-            descriptors[type] = {};
-        }
-        descriptors[type].push_back(py_resource);
 
         VkWriteDescriptorSet write_descriptor_set = {};
         write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         write_descriptor_set.descriptorCount = 1;
         write_descriptor_set.descriptorType = type;
-        write_descriptor_set.dstBinding = binding_offset;
+        write_descriptor_set.dstBinding = binding_offset++;
         if (py_resource->buffer)
         {
             if (py_resource->buffer_view)
@@ -1806,13 +1961,6 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
             }
         }
         write_descriptor_sets.push_back(write_descriptor_set);
-
-        VkDescriptorSetLayoutBinding layout_binding = {};
-        layout_binding.binding = binding_offset++;
-        layout_binding.descriptorCount = 1;
-        layout_binding.descriptorType = type;
-        layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-        layout_bindings.push_back(layout_binding);
     }
 
     binding_offset = 3072;
@@ -1840,12 +1988,40 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         layout_bindings.push_back(layout_binding);
     }
 
-    for (std::pair<VkDescriptorType, std::vector<void *>> pair : descriptors)
+    if (bindless == 0)
+    {
+        for (std::pair<VkDescriptorType, std::vector<void *>> pair : descriptors)
+        {
+            VkDescriptorPoolSize pool_size = {};
+            pool_size.descriptorCount = (uint32_t)pair.second.size();
+            pool_size.type = pair.first;
+            pool_sizes.push_back(pool_size);
+        }
+    }
+    else
     {
         VkDescriptorPoolSize pool_size = {};
-        pool_size.descriptorCount = (uint32_t)pair.second.size();
-        pool_size.type = pair.first;
+        pool_size.descriptorCount = 4096;//bindless;
+        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        pool_sizes.push_back(pool_size);
+        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        pool_sizes.push_back(pool_size);
+        if (descriptors.find(VK_DESCRIPTOR_TYPE_SAMPLER) != descriptors.end())
+        {
+            pool_size.type = VK_DESCRIPTOR_TYPE_SAMPLER;
+            pool_sizes.push_back(pool_size);
+        }
+        printf("pool sizes %u\n", pool_sizes.size());
     }
 
     const char *entry_point = vulkan_get_spirv_entry_point(shader_create_info.pCode, shader_create_info.codeSize);
@@ -1879,41 +2055,33 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     }
     COMPUSHADY_CLEAR(py_compute);
 
-    py_compute->py_cbv_list = PyList_New(0);
-    py_compute->py_srv_list = PyList_New(0);
-    py_compute->py_uav_list = PyList_New(0);
-    py_compute->py_samplers_list = PyList_New(0);
-
-    for (vulkan_Resource *py_resource : cbv)
-    {
-        PyList_Append(py_compute->py_cbv_list, (PyObject *)py_resource);
-    }
-
-    for (vulkan_Resource *py_resource : srv)
-    {
-        PyList_Append(py_compute->py_srv_list, (PyObject *)py_resource);
-    }
-
-    for (vulkan_Resource *py_resource : uav)
-    {
-        PyList_Append(py_compute->py_uav_list, (PyObject *)py_resource);
-    }
-
-    for (vulkan_Sampler *py_sampler : samplers)
-    {
-        PyList_Append(py_compute->py_samplers_list, (PyObject *)py_sampler);
-    }
-
     py_compute->py_device = py_device;
     Py_INCREF(py_compute->py_device);
     py_compute->shader_module = shader_module;
 
     py_compute->push_constant_size = push_size;
+    py_compute->bindless = bindless;
 
     VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info = {};
     descriptor_set_layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     descriptor_set_layout_create_info.bindingCount = (uint32_t)layout_bindings.size();
     descriptor_set_layout_create_info.pBindings = layout_bindings.data();
+
+    if (bindless > 0)
+    {
+        mutable_descriptor_type_create_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT;
+        mutable_descriptor_type_create_info.mutableDescriptorTypeListCount = (uint32_t)mutable_list.size();
+        mutable_descriptor_type_create_info.pMutableDescriptorTypeLists = mutable_list.data();
+
+        binding_flags_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        binding_flags_create_info.pNext = &mutable_descriptor_type_create_info;
+        binding_flags_create_info.pBindingFlags = layout_bindings_flags.data();
+        binding_flags_create_info.bindingCount = (uint32_t)layout_bindings_flags.size();
+
+        descriptor_set_layout_create_info.pNext = &binding_flags_create_info;
+
+        descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    }
 
     result = vkCreateDescriptorSetLayout(py_device->device, &descriptor_set_layout_create_info,
                                          NULL, &py_compute->descriptor_set_layout);
@@ -1927,6 +2095,10 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_info.poolSizeCount = (uint32_t)pool_sizes.size();
     pool_info.pPoolSizes = pool_sizes.data();
+    if (bindless > 0)
+    {
+        pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+    }
     pool_info.maxSets = 1;
 
     result = vkCreateDescriptorPool(py_device->device, &pool_info, NULL, &py_compute->descriptor_pool);
@@ -1936,28 +2108,33 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Pool");
     }
 
-    VkDescriptorSetAllocateInfo descriptor_set_alloc_info = {};
-    descriptor_set_alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    descriptor_set_alloc_info.descriptorPool = py_compute->descriptor_pool;
-    descriptor_set_alloc_info.descriptorSetCount = 1;
-    descriptor_set_alloc_info.pSetLayouts = &py_compute->descriptor_set_layout;
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
+    descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptor_set_allocate_info.descriptorPool = py_compute->descriptor_pool;
+    descriptor_set_allocate_info.descriptorSetCount = 1;
+    descriptor_set_allocate_info.pSetLayouts = &py_compute->descriptor_set_layout;
 
     result = vkAllocateDescriptorSets(
-        py_device->device, &descriptor_set_alloc_info, &py_compute->descriptor_set);
+        py_device->device, &descriptor_set_allocate_info, &py_compute->descriptor_set);
     if (result != VK_SUCCESS)
     {
         Py_DECREF(py_compute);
         return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Set");
     }
 
-    // update descriptors
-    for (VkWriteDescriptorSet &write_descriptor_set : write_descriptor_sets)
+    if (write_descriptor_sets.size() > 0)
     {
-        write_descriptor_set.dstSet = py_compute->descriptor_set;
-    }
+        // update descriptors
+        for (VkWriteDescriptorSet &write_descriptor_set : write_descriptor_sets)
+        {
+            write_descriptor_set.dstSet = py_compute->descriptor_set;
+        }
 
-    vkUpdateDescriptorSets(py_device->device, (uint32_t)write_descriptor_sets.size(),
-                           write_descriptor_sets.data(), 0, NULL);
+        printf("descriptor write: %u\n", write_descriptor_sets.size());
+
+        vkUpdateDescriptorSets(py_device->device, (uint32_t)write_descriptor_sets.size(),
+                               write_descriptor_sets.data(), 0, NULL);
+    }
 
     VkPipelineLayoutCreateInfo layout_create_info = {};
     layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1999,6 +2176,64 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     {
         Py_DECREF(py_compute);
         return PyErr_Format(PyExc_Exception, "Unable to create Compute Pipeline");
+    }
+
+    const size_t num_cbv = (bindless > 0) ? bindless : cbv.size();
+    const size_t num_srv = (bindless > 0) ? bindless : srv.size();
+    const size_t num_uav = (bindless > 0) ? bindless : uav.size();
+
+    py_compute->py_cbv_list = PyList_New(num_cbv);
+    py_compute->py_srv_list = PyList_New(num_srv);
+    py_compute->py_uav_list = PyList_New(num_uav);
+    py_compute->py_samplers_list = PyList_New(0);
+
+    printf("CBV+SRV+UAV: %u %u %u\n", num_cbv, num_srv, num_uav);
+
+    for (size_t i = 0; i < num_cbv; i++)
+    {
+        if (i < cbv.size())
+        {
+            Py_INCREF((PyObject *)cbv[i]);
+            PyList_SetItem(py_compute->py_cbv_list, i, (PyObject *)cbv[i]);
+        }
+        else
+        {
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_cbv_list, i, Py_None);
+        }
+    }
+
+    for (size_t i = 0; i < num_srv; i++)
+    {
+        if (i < srv.size())
+        {
+            Py_INCREF((PyObject *)srv[i]);
+            PyList_SetItem(py_compute->py_srv_list, i, (PyObject *)srv[i]);
+        }
+        else
+        {
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_srv_list, i, Py_None);
+        }
+    }
+
+    for (size_t i = 0; i < num_uav; i++)
+    {
+        if (i < uav.size())
+        {
+            Py_INCREF((PyObject *)uav[i]);
+            PyList_SetItem(py_compute->py_uav_list, i, (PyObject *)uav[i]);
+        }
+        else
+        {
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_uav_list, i, Py_None);
+        }
+    }
+
+    for (vulkan_Sampler *py_sampler : samplers)
+    {
+        PyList_Append(py_compute->py_samplers_list, (PyObject *)py_sampler);
     }
 
     return (PyObject *)py_compute;
@@ -2973,11 +3208,204 @@ static PyObject *vulkan_Compute_dispatch_indirect(vulkan_Compute *self, PyObject
     return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
 }
 
+static PyObject *vulkan_Compute_bind_cbv(vulkan_Compute *self, PyObject *args)
+{
+    uint32_t index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&vulkan_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    vulkan_Resource *py_cbv = (vulkan_Resource *)py_resource;
+
+    if (!py_cbv->buffer)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+    }
+
+    VkWriteDescriptorSet write_descriptor_set = {};
+    write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    write_descriptor_set.dstBinding = index;
+    write_descriptor_set.pBufferInfo = &py_cbv->descriptor_buffer_info;
+    write_descriptor_set.dstSet = self->descriptor_set;
+
+    vkUpdateDescriptorSets(self->py_device->device, 1,
+                           &write_descriptor_set, 0, NULL);
+
+    Py_INCREF(py_resource);
+    PyList_SetItem(self->py_cbv_list, index, py_resource);
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *vulkan_Compute_bind_srv(vulkan_Compute *self, PyObject *args)
+{
+    UINT index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&vulkan_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    vulkan_Resource *py_srv = (vulkan_Resource *)py_resource;
+
+    printf("AAAA %d %d\n", self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
+
+    VkWriteDescriptorSet write_descriptor_set = {};
+    write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.descriptorType = py_srv->buffer ? py_srv->buffer_view
+                                                               ? VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+                                                               : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                                                         : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    write_descriptor_set.dstBinding = 1024 + index;
+    if (py_srv->buffer)
+    {
+        if (py_srv->buffer_view)
+        {
+            write_descriptor_set.pTexelBufferView = &py_srv->buffer_view;
+        }
+        else
+        {
+            write_descriptor_set.pBufferInfo = &py_srv->descriptor_buffer_info;
+        }
+    }
+    else
+    {
+        write_descriptor_set.pImageInfo = &py_srv->descriptor_image_info;
+    }
+    write_descriptor_set.dstSet = self->descriptor_set;
+
+    printf("*****\n");
+
+    vkUpdateDescriptorSets(self->py_device->device, 1,
+                           &write_descriptor_set, 0, NULL);
+
+    printf("!!!!!\n");
+
+    Py_INCREF(py_resource);
+    if (PyList_SetItem(self->py_srv_list, index, py_resource))
+    {
+        printf("OOOOPS\n");
+    }
+
+    printf("BBBBB %d %d\n", self->py_srv_list->ob_refcnt, py_resource->ob_refcnt);
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *vulkan_Compute_bind_uav(vulkan_Compute *self, PyObject *args)
+{
+    UINT index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&vulkan_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    vulkan_Resource *py_uav = (vulkan_Resource *)py_resource;
+
+    VkWriteDescriptorSet write_descriptor_set = {};
+    write_descriptor_set.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write_descriptor_set.descriptorCount = 1;
+    write_descriptor_set.descriptorType = py_uav->buffer ? py_uav->buffer_view
+                                                               ? VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
+                                                               : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                         : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    write_descriptor_set.dstBinding = 2048 + index;
+    if (py_uav->buffer)
+    {
+        if (py_uav->buffer_view)
+        {
+            write_descriptor_set.pTexelBufferView = &py_uav->buffer_view;
+        }
+        else
+        {
+            write_descriptor_set.pBufferInfo = &py_uav->descriptor_buffer_info;
+        }
+    }
+    else
+    {
+        write_descriptor_set.pImageInfo = &py_uav->descriptor_image_info;
+    }
+    write_descriptor_set.dstSet = self->descriptor_set;
+
+    printf("bind_uav\n");
+
+    vkUpdateDescriptorSets(self->py_device->device, 1,
+                           &write_descriptor_set, 0, NULL);
+
+    Py_INCREF(py_resource);
+    PyList_SetItem(self->py_uav_list, index, py_resource);
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef vulkan_Compute_methods[] = {
     {"dispatch", (PyCFunction)vulkan_Compute_dispatch, METH_VARARGS,
      "Execute a Compute Pipeline"},
     {"dispatch_indirect", (PyCFunction)vulkan_Compute_dispatch_indirect, METH_VARARGS,
      "Execute an Indirect Compute Pipeline"},
+    {"bind_cbv", (PyCFunction)vulkan_Compute_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Compute Pipeline"},
+    {"bind_srv", (PyCFunction)vulkan_Compute_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Compute Pipeline"},
+    {"bind_uav", (PyCFunction)vulkan_Compute_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Compute Pipeline"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
