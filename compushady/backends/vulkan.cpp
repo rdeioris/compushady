@@ -755,6 +755,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
     bool mutable_ext = false;
     bool descriptor_indexing = false;
 
+#if VK_EXT_mutable_descriptor_type || VK_VALVE_mutable_descriptor_type || VK_EXT_descriptor_indexing || __APPLE__
     for (VkExtensionProperties &extension_prop : available_extensions)
     {
 #ifdef VK_EXT_mutable_descriptor_type
@@ -792,6 +793,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
         }
 #endif
     }
+#endif
 
     std::vector<const char *> layers;
     uint32_t layers_count;
@@ -844,17 +846,17 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             create_info.enabledLayerCount = (uint32_t)layers.size();
             create_info.ppEnabledLayerNames = layers.data();
 
-            VkResult result;
+            VkResult result = VK_ERROR_UNKNOWN;
 
             if (self->supports_bindless)
             {
                 if (mutable_ext)
                 {
-#ifdef VK_EXT_descriptor_indexing
+#if VK_EXT_descriptor_indexing
+#ifdef VK_EXT_mutable_descriptor_type
                     VkPhysicalDeviceMutableDescriptorTypeFeaturesEXT mutable_descriptor_type_features = {};
                     mutable_descriptor_type_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_EXT;
                     mutable_descriptor_type_features.mutableDescriptorType = VK_TRUE;
-#ifdef VK_EXT_descriptor_indexing
                     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {};
                     descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
                     descriptor_indexing_features.pNext = &mutable_descriptor_type_features;
@@ -874,7 +876,6 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
                     create_info.pNext = &deviceFeatures;
                     result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
 #endif
-#endif
                 }
                 else if (mutable_valve)
                 {
@@ -882,7 +883,6 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
                     VkPhysicalDeviceMutableDescriptorTypeFeaturesVALVE mutable_descriptor_type_features = {};
                     mutable_descriptor_type_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MUTABLE_DESCRIPTOR_TYPE_FEATURES_VALVE;
                     mutable_descriptor_type_features.mutableDescriptorType = VK_TRUE;
-#ifdef VK_EXT_descriptor_indexing
                     VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {};
                     descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
                     descriptor_indexing_features.pNext = &mutable_descriptor_type_features;
@@ -1822,14 +1822,22 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     std::unordered_map<VkDescriptorType, std::vector<void *>> descriptors;
     std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
 
+#if VK_EXT_descriptor_indexing
+#if VK_EXT_mutable_descriptor_type || VK_VALVE_mutable_descriptor_type
     const VkDescriptorType srv_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE};
     const VkDescriptorType uav_mutable_types[] = {VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
-    const VkDescriptorType all_mutable_types[] = {VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE};
+#endif
 
+#ifdef VK_EXT_mutable_descriptor_type
+    std::vector<VkMutableDescriptorTypeListEXT> mutable_list;
+    VkMutableDescriptorTypeCreateInfoEXT mutable_descriptor_type_create_info = {};
+#elif VK_VALVE_mutable_descriptor_type
     std::vector<VkMutableDescriptorTypeListVALVE> mutable_list;
-
     VkMutableDescriptorTypeCreateInfoVALVE mutable_descriptor_type_create_info = {};
+
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = {};
+#endif
+#endif
 
     VkShaderModuleCreateInfo shader_create_info = {};
     shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1918,10 +1926,17 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
             return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (uint32_t)uav.size(), bindless);
         }
 
+#ifdef VK_EXT_descriptor_indexing
         VkDescriptorBindingFlags layout_binding_flags = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 
         VkDescriptorSetLayoutBinding layout_binding = {};
+#ifdef VK_EXT_mutable_descriptor_type
+        VkMutableDescriptorTypeListEXT mutable_descriptor_type_list = {};
+#elif VK_VALVE_mutable_descriptor_type
         VkMutableDescriptorTypeListVALVE mutable_descriptor_type_list = {};
+#endif
+
+#if VK_EXT_mutable_descriptor_type || VK_VALVE_mutable_descriptor_type
         mutable_descriptor_type_list.descriptorTypeCount = 0;
         // CBV
         for (uint32_t i = 0; i < bindless; i++)
@@ -1941,7 +1956,11 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             layout_binding.binding = 1024 + i;
             layout_binding.descriptorCount = 1;
+#ifdef VK_EXT_mutable_descriptor_type
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
+#elif VK_VALVE_mutable_descriptor_type
             layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+#endif
             layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             layout_bindings.push_back(layout_binding);
             layout_bindings_flags.push_back(layout_binding_flags);
@@ -1958,7 +1977,11 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             layout_binding.binding = 2048 + i;
             layout_binding.descriptorCount = 1;
+#ifdef VK_EXT_mutable_descriptor_type
+            layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_EXT;
+#elif VK_VALVE_mutable_descriptor_type
             layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_MUTABLE_VALVE;
+#endif
             layout_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
             layout_bindings.push_back(layout_binding);
             layout_bindings_flags.push_back(layout_binding_flags);
@@ -1968,6 +1991,8 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         {
             mutable_list.push_back(mutable_descriptor_type_list);
         }
+#endif
+#endif
     }
 
     binding_offset = 0;
@@ -2142,18 +2167,28 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     if (bindless > 0)
     {
+#if VK_EXT_descriptor_indexing
+#ifdef VK_EXT_mutable_descriptor_type
+        mutable_descriptor_type_create_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_EXT;
+#elif VK_VALVE_mutable_descriptor_type
         mutable_descriptor_type_create_info.sType = VK_STRUCTURE_TYPE_MUTABLE_DESCRIPTOR_TYPE_CREATE_INFO_VALVE;
+#endif
+#if VK_EXT_mutable_descriptor_type || VK_VALVE_mutable_descriptor_type
         mutable_descriptor_type_create_info.mutableDescriptorTypeListCount = (uint32_t)mutable_list.size();
         mutable_descriptor_type_create_info.pMutableDescriptorTypeLists = mutable_list.data();
+#endif
 
-        binding_flags_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+#if VK_EXT_mutable_descriptor_type || VK_VALVE_mutable_descriptor_type
         binding_flags_create_info.pNext = &mutable_descriptor_type_create_info;
+#endif
+        binding_flags_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
         binding_flags_create_info.pBindingFlags = layout_bindings_flags.data();
         binding_flags_create_info.bindingCount = (uint32_t)layout_bindings_flags.size();
 
         descriptor_set_layout_create_info.pNext = &binding_flags_create_info;
 
         descriptor_set_layout_create_info.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+#endif
     }
 
     result = vkCreateDescriptorSetLayout(py_device->device, &descriptor_set_layout_create_info,
@@ -2184,19 +2219,11 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         return PyErr_Format(PyExc_Exception, "Unable to create Descriptor Pool");
     }
 
-    const uint32_t descriptor_counts = 64 * 3;
-
     VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
     descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     descriptor_set_allocate_info.descriptorPool = py_compute->descriptor_pool;
     descriptor_set_allocate_info.descriptorSetCount = 1;
     descriptor_set_allocate_info.pSetLayouts = &py_compute->descriptor_set_layout;
-
-    VkDescriptorSetVariableDescriptorCountAllocateInfoEXT count_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO_EXT};
-    count_info.descriptorSetCount = 1;
-    count_info.pDescriptorCounts = &descriptor_counts;
-
-    // descriptor_set_allocate_info.pNext = &count_info;
 
     result = vkAllocateDescriptorSets(
         py_device->device, &descriptor_set_allocate_info, &py_compute->descriptor_set);
@@ -2416,7 +2443,7 @@ static PyObject *vulkan_Device_create_swapchain(vulkan_Device *self, PyObject *a
     }
 
     const char *xdg_session_type = getenv("XDG_SESSION_TYPE");
-    if (vulkan_has_wayland && xdg_session_type && !strcmp(xdg_session_type, "wayland"))
+    if (vulkan_supports_wayland && xdg_session_type && !strcmp(xdg_session_type, "wayland"))
     {
         VkWaylandSurfaceCreateInfoKHR surface_create_info = {};
         surface_create_info.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR;
