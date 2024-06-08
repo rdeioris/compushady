@@ -41,8 +41,8 @@ kernel void main0(texture2d<float, access::write> input [[texture(0)]])
         u0.copy_to(b0)
         self.assertEqual(struct.unpack("4f", b0.readback(16)), (1, 2, 3, 4))
 
-    def test_bindless(self):
-        u0 = Buffer(4, stride=4)
+    def test_bindless_on_metal2(self):
+        u0 = Texture2D(1, 1, format=R32_UINT)
         b0 = Buffer(u0.size, HEAP_READBACK)
         shader = msl.compile(
             """
@@ -53,12 +53,12 @@ using namespace metal;
 
 struct Arguments
 {
-	device uint32_t* buffer;
+        texture2d<uint, access::write> buffer [[id(0)]];
 };
 
-kernel void main0(device Arguments* input [[buffer(0)]])
+kernel void main0(device Arguments & input [[buffer(0)]])
 {
-    input[0].buffer[0] = 100;
+    input.buffer.write(100, uint2(0, 0));
 } 
         """,
             (1, 1, 1),
