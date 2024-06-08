@@ -40,5 +40,6 @@ def compile(source, entry_point="main", target="cs_6_0"):
 
         if entry_point == "main":
             entry_point = "main0"
+
         return metal.msl_compile(blob[0], entry_point, blob[1])
     return blob

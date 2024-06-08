@@ -77,6 +77,7 @@ typedef struct metal_Compute
     std::vector<metal_Sampler*> samplers;
     metal_MTLFunction* py_mtl_function;
     uint32_t push_constant_size;
+    uint32_t bindless;
 } metal_Compute;
 
 typedef struct metal_Swapchain
@@ -406,9 +407,9 @@ static PyMemberDef metal_Resource_members[] = {
 };
 
 static PyMemberDef metal_Swapchain_members[] = {
-    /*{"width", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, width), 0,
+    /*{"width", T_UINT, offsetof(metal_Swapchain, image_extent) + offsetof(VkExtent2D, width), 0,
      "swapchain width"},
-     {"height", T_UINT, offsetof(vulkan_Swapchain, image_extent) + offsetof(VkExtent2D, height), 0,
+     {"height", T_UINT, offsetof(metal_Swapchain, image_extent) + offsetof(VkExtent2D, height), 0,
      "swapchain height"},*/
     { NULL } /* Sentinel */
 };
@@ -442,6 +443,8 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     for (size_t i = 0; i < self->cbv.size(); i++)
     {
         metal_Resource* py_resource = self->cbv[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -451,6 +454,8 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     for (size_t i = 0; i < self->srv.size(); i++)
     {
         metal_Resource* py_resource = self->srv[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -460,6 +465,8 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     for (size_t i = 0; i < self->uav.size(); i++)
     {
         metal_Resource* py_resource = self->uav[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -531,6 +538,8 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
     for (size_t i = 0; i < self->cbv.size(); i++)
     {
         metal_Resource* py_resource = self->cbv[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -540,6 +549,8 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
     for (size_t i = 0; i < self->srv.size(); i++)
     {
         metal_Resource* py_resource = self->srv[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -549,6 +560,8 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
     for (size_t i = 0; i < self->uav.size(); i++)
     {
         metal_Resource* py_resource = self->uav[i];
+        if (!py_resource)
+            continue;
         if (py_resource->texture)
             [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
         else
@@ -582,9 +595,128 @@ static PyObject* metal_Compute_dispatch_indirect(metal_Compute* self, PyObject* 
     Py_RETURN_NONE;
 }
 
+static PyObject *metal_Compute_bind_cbv(metal_Compute *self, PyObject *args)
+{
+    uint32_t index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    metal_Resource *py_cbv = (metal_Resource *)py_resource;
+
+    if (!py_cbv->buffer)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Buffer object");
+    }
+
+    self->cbv[index] = py_cbv;
+
+    Py_INCREF(py_resource);
+    PyList_SetItem(self->py_cbv_list, index, py_resource);
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *metal_Compute_bind_srv(metal_Compute *self, PyObject *args)
+{
+    uint32_t index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    metal_Resource *py_srv = (metal_Resource *)py_resource;
+
+    self->srv[index] = py_srv;
+
+    Py_INCREF(py_resource);
+    PyList_SetItem(self->py_srv_list, index, py_resource);
+
+    Py_RETURN_NONE;
+}
+
+static PyObject *metal_Compute_bind_uav(metal_Compute *self, PyObject *args)
+{
+    uint32_t index;
+    PyObject *py_resource;
+    if (!PyArg_ParseTuple(args, "IO", &index, &py_resource))
+        return NULL;
+
+    if (self->bindless == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Compute pipeline is not in bindless mode");
+    }
+
+    if (index >= self->bindless)
+    {
+        return PyErr_Format(PyExc_ValueError, "Invalid bind index %u (max: %u)", index, self->bindless - 1);
+    }
+
+    const int ret = PyObject_IsInstance(py_resource, (PyObject *)&metal_Resource_Type);
+    if (ret < 0)
+    {
+        return NULL;
+    }
+    else if (ret == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Expected a Resource object");
+    }
+
+    metal_Resource *py_uav = (metal_Resource *)py_resource;
+
+    self->uav[index] = py_uav;
+
+    Py_INCREF(py_resource);
+    PyList_SetItem(self->py_uav_list, index, py_resource);
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef metal_Compute_methods[] = {
     { "dispatch", (PyCFunction)metal_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline" },
     { "dispatch_indirect", (PyCFunction)metal_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline" },
+    { "bind_cbv", (PyCFunction)metal_Compute_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Compute Pipeline"},
+    { "bind_srv", (PyCFunction)metal_Compute_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Compute Pipeline"},
+    { "bind_uav", (PyCFunction)metal_Compute_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Compute Pipeline"},
     { NULL, NULL, 0, NULL } /* Sentinel */
 };
 
@@ -751,7 +883,7 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
         = (metal_Resource*)PyObject_New(metal_Resource, &metal_Resource_Type);
     if (!py_resource)
     {
-        return PyErr_Format(PyExc_MemoryError, "unable to allocate vulkan Buffer");
+        return PyErr_Format(PyExc_MemoryError, "unable to allocate metal Buffer");
     }
     COMPUSHADY_CLEAR(py_resource);
     py_resource->py_device = py_device;
@@ -911,26 +1043,23 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     py_compute->py_device = py_device;
     Py_INCREF(py_compute->py_device);
 
-    py_compute->cbv = std::vector<metal_Resource*>();
-    py_compute->srv = std::vector<metal_Resource*>();
-    py_compute->uav = std::vector<metal_Resource*>();
-    py_compute->samplers = std::vector<metal_Sampler*>();
+    py_compute->bindless = bindless;
 
     py_compute->py_mtl_function = mtl_function;
     Py_INCREF(py_compute->py_mtl_function);
 
-    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, py_compute->cbv, py_srv,
-            py_compute->srv, py_uav, py_compute->uav, &metal_Sampler_Type, py_samplers,
-            py_compute->samplers))
+    std::vector<metal_Resource *> cbv;
+    std::vector<metal_Resource *> srv;
+    std::vector<metal_Resource *> uav;
+    std::vector<metal_Sampler *> samplers;
+
+    if (!compushady_check_descriptors(&metal_Resource_Type, py_cbv, cbv, py_srv,
+            srv, py_uav, uav, &metal_Sampler_Type, py_samplers,
+            samplers))
     {
         Py_DECREF(py_compute);
         return NULL;
     }
-
-    py_compute->py_cbv_list = PyList_New(0);
-    py_compute->py_srv_list = PyList_New(0);
-    py_compute->py_uav_list = PyList_New(0);
-    py_compute->py_samplers_list = PyList_New(0);
 
     py_compute->compute_pipeline_state =
         [py_device->device newComputePipelineStateWithFunction:mtl_function->function error:nil];
@@ -940,26 +1069,71 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
         return PyErr_Format(PyExc_Exception, "unable to create metal ComputePipelineState");
     }
 
-    for (size_t i = 0; i < py_compute->cbv.size(); i++)
+    const size_t num_cbv = (bindless > 0) ? bindless : cbv.size();
+    const size_t num_srv = (bindless > 0) ? bindless : srv.size();
+    const size_t num_uav = (bindless > 0) ? bindless : uav.size();
+
+    py_compute->cbv = std::vector<metal_Resource*>(num_cbv);
+    py_compute->srv = std::vector<metal_Resource*>(num_srv);
+    py_compute->uav = std::vector<metal_Resource*>(num_uav);
+    py_compute->samplers = std::vector<metal_Sampler*>();
+
+    py_compute->py_cbv_list = PyList_New(num_cbv);
+    py_compute->py_srv_list = PyList_New(num_srv);
+    py_compute->py_uav_list = PyList_New(num_uav);
+    py_compute->py_samplers_list = PyList_New(0);
+
+    for (size_t i = 0; i < num_cbv; i++)
     {
-        metal_Resource* py_resource = py_compute->cbv[i];
-        PyList_Append(py_compute->py_cbv_list, (PyObject*)py_resource);
+        if (i < cbv.size())
+        {
+            py_compute->cbv[i] = cbv[i]; 
+            Py_INCREF((PyObject *)cbv[i]);
+            PyList_SetItem(py_compute->py_cbv_list, i, (PyObject *)cbv[i]);
+        }
+        else
+        {
+            py_compute->cbv[i] = NULL; 
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_cbv_list, i, Py_None);
+        }
     }
 
-    for (size_t i = 0; i < py_compute->srv.size(); i++)
+    for (size_t i = 0; i < num_srv; i++)
     {
-        metal_Resource* py_resource = py_compute->srv[i];
-        PyList_Append(py_compute->py_srv_list, (PyObject*)py_resource);
+        if (i < srv.size())
+        {
+            py_compute->srv[i] = srv[i]; 
+            Py_INCREF((PyObject *)srv[i]);
+            PyList_SetItem(py_compute->py_srv_list, i, (PyObject *)srv[i]);
+        }
+        else
+        {
+            py_compute->srv[i] = NULL; 
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_srv_list, i, Py_None);
+        }
     }
 
-    for (size_t i = 0; i < py_compute->uav.size(); i++)
+    for (size_t i = 0; i < num_uav; i++)
     {
-        metal_Resource* py_resource = py_compute->uav[i];
-        PyList_Append(py_compute->py_uav_list, (PyObject*)py_resource);
+        if (i < uav.size())
+        {
+            py_compute->uav[i] = uav[i]; 
+            Py_INCREF((PyObject *)uav[i]);
+            PyList_SetItem(py_compute->py_uav_list, i, (PyObject *)uav[i]);
+        }
+        else
+        {
+            py_compute->uav[i] = NULL; 
+            Py_INCREF(Py_None);
+            PyList_SetItem(py_compute->py_uav_list, i, Py_None);
+        }
     }
 
     for (size_t i = 0; i < py_compute->samplers.size(); i++)
     {
+        py_compute->samplers.push_back(samplers[i]);
         metal_Sampler* py_sampler = py_compute->samplers[i];
         PyList_Append(py_compute->py_samplers_list, (PyObject*)py_sampler);
     }
