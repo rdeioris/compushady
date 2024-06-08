@@ -335,6 +335,9 @@ class ComputeTests(unittest.TestCase):
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
 
+    @unittest.skipIf(
+        compushady.get_backend().name == "metal", "Tests meaningless with Metal backend"
+    )
     def test_bindless_legacy(self):
         shader = hlsl.compile(
             """
@@ -372,6 +375,9 @@ class ComputeTests(unittest.TestCase):
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
 
+    @unittest.skipIf(
+        compushady.get_backend().name == "metal", "Tests meaningless with Metal backend"
+    )
     def test_bindless_legacy_mixed(self):
         shader = hlsl.compile(
             """

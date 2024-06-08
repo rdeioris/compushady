@@ -40,3 +40,32 @@ kernel void main0(texture2d<float, access::write> input [[texture(0)]])
         compute.dispatch(1, 1, 1)
         u0.copy_to(b0)
         self.assertEqual(struct.unpack("4f", b0.readback(16)), (1, 2, 3, 4))
+
+    def test_bindless(self):
+        u0 = Buffer(4, stride=4)
+        b0 = Buffer(u0.size, HEAP_READBACK)
+        shader = msl.compile(
+            """
+#include <metal_stdlib>
+#include <simd/simd.h>
+
+using namespace metal;
+
+struct Arguments
+{
+	device uint32_t* buffer;
+};
+
+kernel void main0(device Arguments* input [[buffer(0)]])
+{
+    input[0].buffer[0] = 100;
+} 
+        """,
+            (1, 1, 1),
+            "main0",
+        )
+        compute = Compute(shader, bindless=True)
+        compute.bind_uav(0, u0)
+        compute.dispatch(1, 1, 1)
+        u0.copy_to(b0)
+        self.assertEqual(struct.unpack("I", b0.readback(4)), (100, ))
