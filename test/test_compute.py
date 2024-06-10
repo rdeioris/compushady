@@ -422,9 +422,11 @@ class ComputeTests(unittest.TestCase):
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
 
-
     @unittest.skipIf(
         platform.system() == "Darwin", "Tests meaningless on Apple platform"
+    )
+    @unittest.skipIf(
+        compushady.get_backend().name == "vulkan", "Tests meaningless on Vulkan backend"
     )
     def test_bindless_legacy_structured(self):
         shader = hlsl.compile(
@@ -466,5 +468,3 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
-
-
