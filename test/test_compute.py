@@ -10,6 +10,7 @@ from compushady.formats import (
     R32_UINT,
 )
 import compushady.config
+import platform
 
 compushady.config.set_debug(True)
 
@@ -336,7 +337,7 @@ class ComputeTests(unittest.TestCase):
         )
 
     @unittest.skipIf(
-        compushady.get_backend().name == "metal", "Tests meaningless with Metal backend"
+        platform.system() == "Darwin", "Tests meaningless on Apple platform"
     )
     def test_bindless_legacy(self):
         shader = hlsl.compile(
@@ -376,7 +377,7 @@ class ComputeTests(unittest.TestCase):
         )
 
     @unittest.skipIf(
-        compushady.get_backend().name == "metal", "Tests meaningless with Metal backend"
+        platform.system() == "Darwin", "Tests meaningless on Apple platform"
     )
     def test_bindless_legacy_mixed(self):
         shader = hlsl.compile(
@@ -421,6 +422,10 @@ class ComputeTests(unittest.TestCase):
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
 
+
+    @unittest.skipIf(
+        platform.system() == "Darwin", "Tests meaningless on Apple platform"
+    )
     def test_bindless_legacy_structured(self):
         shader = hlsl.compile(
             """
