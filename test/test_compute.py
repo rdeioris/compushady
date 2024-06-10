@@ -420,3 +420,46 @@ class ComputeTests(unittest.TestCase):
         self.assertEqual(
             struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
         )
+
+    def test_bindless_legacy_structured(self):
+        shader = hlsl.compile(
+            """
+        struct Data
+        {
+            uint value;
+        };
+        StructuredBuffer<Data> buffers[];
+        RWStructuredBuffer<Data> targets[];
+
+        [numthreads(1, 1, 1)]
+        void main(uint3 tid : SV_DispatchThreadID)
+        {
+            StructuredBuffer<Data> buffer0 = buffers[tid.x];
+            targets[0][tid.x].value = buffer0[0].value;
+        }
+        """
+        )
+
+        compute = Compute(shader, bindless=True)
+
+        b_upload = Buffer(4, HEAP_UPLOAD)
+        b_output = Buffer(4 * 64, format=R32_UINT)
+        b_readback = Buffer(b_output.size, HEAP_READBACK)
+
+        compute.bind_uav(0, b_output)
+
+        for i in range(0, 64):
+            b = Buffer(4, format=R32_UINT)
+            b_upload.upload(struct.pack("<I", i))
+            b_upload.copy_to(b)
+            compute.bind_srv(i, b)
+
+        compute.dispatch(64, 1, 1)
+
+        b_output.copy_to(b_readback)
+
+        self.assertEqual(
+            struct.unpack("<64I", b_readback.readback(4 * 64)), tuple(range(0, 64))
+        )
+
+

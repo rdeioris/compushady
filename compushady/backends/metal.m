@@ -78,9 +78,6 @@ typedef struct metal_Compute
     metal_MTLFunction* py_mtl_function;
     uint32_t push_constant_size;
     uint32_t bindless;
-    id<MTLArgumentEncoder> argument_encoder;
-    NSArray<MTLArgumentDescriptor*> *argument_descriptors;
-    id<MTLBuffer> argument_buffer;
 } metal_Compute;
 
 typedef struct metal_Swapchain
@@ -443,45 +440,38 @@ static PyObject* metal_Compute_dispatch(metal_Compute* self, PyObject* args)
     uint32_t texture_index = 0;
     uint32_t sampler_index = 0;
 
-    if (self->bindless > 0)
+    for (size_t i = 0; i < self->cbv.size(); i++)
     {
-        [compute_command_encoder setBuffer:self->argument_buffer offset:0 atIndex:0];
+        metal_Resource* py_resource = self->cbv[i];
+        if (!py_resource)
+            continue;
+        if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:(self->bindless > 0 ? i : texture_index++)];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:(self->bindless > 0 ? i : buffer_index++)];
     }
-    else
+
+    for (size_t i = 0; i < self->srv.size(); i++)
     {
-        for (size_t i = 0; i < self->cbv.size(); i++)
-        {
-            metal_Resource* py_resource = self->cbv[i];
-            if (!py_resource)
-                continue;
-            if (py_resource->texture)
-                [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
-            else
-                [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
-        }
+	metal_Resource* py_resource = self->srv[i];
+	if (!py_resource)
+	    continue;
+	if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:(self->bindless > 0 ? i : texture_index++)];
+	else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:(self->bindless > 0 ? i : buffer_index++)];
+    }
 
-	    for (size_t i = 0; i < self->srv.size(); i++)
-	    {
-		metal_Resource* py_resource = self->srv[i];
-		if (!py_resource)
-		    continue;
-		if (py_resource->texture)
-		    [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
-		else
-		    [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
-	    }
-
-	    for (size_t i = 0; i < self->uav.size(); i++)
-	    {
-		metal_Resource* py_resource = self->uav[i];
-		if (!py_resource)
-		    continue;
-		if (py_resource->texture)
-		    [compute_command_encoder setTexture:py_resource->texture atIndex:texture_index++];
-		else
-		    [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:buffer_index++];
-	    }
-    }    
+    for (size_t i = 0; i < self->uav.size(); i++)
+    {
+        metal_Resource* py_resource = self->uav[i];
+	if (!py_resource)
+	    continue;
+	if (py_resource->texture)
+            [compute_command_encoder setTexture:py_resource->texture atIndex:(self->bindless > 0 ? i : texture_index++)];
+        else
+            [compute_command_encoder setBuffer:py_resource->buffer offset:0 atIndex:(self->bindless > 0 ? i : buffer_index++)];
+    }
 
     for (size_t i = 0; i < self->samplers.size(); i++)
     {
@@ -717,8 +707,6 @@ static PyObject *metal_Compute_bind_uav(metal_Compute *self, PyObject *args)
 
     Py_INCREF(py_resource);
     PyList_SetItem(self->py_uav_list, index, py_resource);
-
-    [self->argument_encoder setTexture:py_uav->texture atIndex:index];
 
     Py_RETURN_NONE;
 }
@@ -1056,17 +1044,6 @@ static PyObject* metal_Device_create_compute(metal_Device* self, PyObject* args,
     Py_INCREF(py_compute->py_device);
 
     py_compute->bindless = bindless;
-
-    if (bindless > 0)
-    {
-        MTLArgumentDescriptor* argument_descriptor0 = [[MTLArgumentDescriptor alloc] init];
-        argument_descriptor0.dataType = MTLDataTypeTexture;
-        argument_descriptor0.index = 0;
-        py_compute->argument_encoder = [py_device->device newArgumentEncoderWithArguments:@[argument_descriptor0]]; 
-        py_compute->argument_buffer = [py_device->device newBufferWithLength:py_compute->argument_encoder.encodedLength options:0];
-        [py_compute->argument_encoder setArgumentBuffer:py_compute->argument_buffer offset:0];
-        [argument_descriptor0 release];
-    }
 
     py_compute->py_mtl_function = mtl_function;
     Py_INCREF(py_compute->py_mtl_function);

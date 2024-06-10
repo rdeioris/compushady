@@ -69,3 +69,23 @@ kernel void main0(device Arguments & input [[buffer(0)]])
         compute.dispatch(1, 1, 1)
         u0.copy_to(b0)
         self.assertEqual(struct.unpack("I", b0.readback(4)), (100, ))
+
+    def test_bindless_buffer(self):
+        u0 = Buffer(8, stride=8)
+        shader = msl.compile("""
+using namespace metal;
+
+kernel void main0(device uint32_t* data [[buffer(0)]])
+{
+    data[0] = 100;
+    data[1] = 200;
+}
+        """, (1, 1, 1), "main0")
+
+        compute = Compute(shader, bindless=True)
+        compute.bind_uav(30, u0)
+        compute.dispatch(1, 1, 1)
+
+        u0_readback = Buffer(u0.size, HEAP_READBACK)
+        u0.copy_to(u0_readback) 
+        self.assertEqual(u0_readback.readback(8), b'\x64\x00\x00\x00\xc8\x00\x00\x00')
