@@ -626,7 +626,9 @@ static PyObject *vulkan_instance_check()
 
     bool surface = false;
     bool swapchain = false;
+#ifdef __APPLE__
     bool portability_enumeration = false;
+#endif
 
     for (VkExtensionProperties &extension_prop : available_extensions)
     {
@@ -851,7 +853,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             create_info.enabledLayerCount = (uint32_t)layers.size();
             create_info.ppEnabledLayerNames = layers.data();
 
-            VkResult result = VK_ERROR_UNKNOWN;
+            VkResult result = (VkResult) -13 /* VK_ERROR_UNKNOWN*/ ;
 
             if (self->supports_bindless)
             {
@@ -1822,7 +1824,9 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     }
 
     std::vector<VkDescriptorSetLayoutBinding> layout_bindings;
+#ifdef VK_EXT_descriptor_indexing
     std::vector<VkDescriptorBindingFlags> layout_bindings_flags;
+#endif
     std::vector<VkDescriptorPoolSize> pool_sizes;
     std::unordered_map<VkDescriptorType, std::vector<void *>> descriptors;
     std::vector<VkWriteDescriptorSet> write_descriptor_sets = {};
@@ -2208,7 +2212,9 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     if (bindless > 0)
     {
+#ifdef VK_EXT_descriptor_indexing
         pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT_EXT;
+#endif
     }
     else
     {
