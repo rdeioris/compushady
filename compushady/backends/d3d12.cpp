@@ -48,7 +48,7 @@ typedef struct d3d12_Resource
 	SIZE_T size;
 	UINT stride;
 	DXGI_FORMAT format;
-	D3D12_HEAP_TYPE heap_type;
+	int heap_type;
 	D3D12_RESOURCE_DIMENSION dimension;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint;
 	d3d12_Heap *py_heap;
@@ -117,6 +117,7 @@ static PyMemberDef d3d12_Resource_members[] = {
 	{"row_pitch", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.RowPitch), 0, "resource row pitch"},
 	{"slices", T_UINT, offsetof(d3d12_Resource, slices), 0, "resource number of slices"},
 	{"heap_size", T_ULONGLONG, offsetof(d3d12_Resource, heap_size), 0, "resource heap size"},
+	{"heap_type", T_INT, offsetof(d3d12_Resource, heap_type), 0, "resource heap type"},
 	{"tiles_x", T_UINT, offsetof(d3d12_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
 	{"tiles_y", T_UINT, offsetof(d3d12_Resource, tiles_y), 0, "sparsed resource number of tiles on y axis"},
 	{"tiles_z", T_UINT, offsetof(d3d12_Resource, tiles_z), 0, "sparsed resource number of tiles on z axis"},
@@ -808,13 +809,13 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	Py_INCREF(py_resource->py_device);
 
 	py_resource->resource = resource;
-	py_resource->heap_type = heap_properties.Type;
 	py_resource->size = size;
 	py_resource->dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
 	py_resource->stride = stride;
 	py_resource->format = format;
 	py_resource->slices = 1;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+	py_resource->heap_type = heap_type;
 
 	if (sparse)
 	{
@@ -956,6 +957,7 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	py_resource->format = format;
 	py_resource->slices = slices;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
 	if (has_heap)
 	{
@@ -1172,6 +1174,7 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	py_resource->format = format;
 	py_resource->slices = slices;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
 	if (sparse)
 	{
@@ -1319,6 +1322,7 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	py_resource->format = format;
 	py_resource->slices = 1;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
 	if (has_heap)
 	{
@@ -2008,14 +2012,14 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 
 	if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER && dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 	{
-		if (self->heap_type == D3D12_HEAP_TYPE_DEFAULT)
+		if (self->heap_type == COMPUSHADY_HEAP_DEFAULT)
 		{
 			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
 			self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
 			reset_barrier0 = true;
 		}
-		if (dst_resource->heap_type == D3D12_HEAP_TYPE_DEFAULT)
+		if (dst_resource->heap_type == COMPUSHADY_HEAP_DEFAULT)
 		{
 			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
@@ -2146,7 +2150,18 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 			return PyErr_Format(PyExc_ValueError, "Cannot use heap from a different device");
 		}
 
-		// TODO check heap size
+		if (py_d3d12_heap->heap_type != self->heap_type)
+		{
+			return PyErr_Format(Compushady_BufferError, "Unsupported heap type");
+		}
+
+		if (heap_offset >= py_d3d12_heap->size)
+		{
+			return PyErr_Format(Compushady_BufferError,
+								"Invalid heap offset (%llu) "
+								"(heap size %llu)",
+								heap_offset, py_d3d12_heap->size);
+		}
 
 		heap = py_d3d12_heap->heap;
 	}

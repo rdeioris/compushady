@@ -88,6 +88,7 @@ typedef struct vulkan_Resource
     uint64_t heap_offset;
     uint32_t slices;
     uint64_t heap_size;
+    int heap_type;
     uint32_t tiles_x;
     uint32_t tiles_y;
     uint32_t tiles_z;
@@ -1233,6 +1234,7 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     py_resource->descriptor_buffer_info.range = size;
     py_resource->heap_size = requirements.size;
     py_resource->slices = 1;
+    py_resource->heap_type = heap_type;
 
     return (PyObject *)py_resource;
 }
@@ -1452,6 +1454,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
     py_resource->slices = slices;
+    py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
     return (PyObject *)py_resource;
 }
@@ -1607,6 +1610,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
     py_resource->slices = 1;
+    py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
     return (PyObject *)py_resource;
 }
@@ -1755,6 +1759,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
     py_resource->slices = slices;
+    py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
     return (PyObject *)py_resource;
 }
@@ -2730,6 +2735,7 @@ static PyMemberDef vulkan_Resource_members[] = {
     {"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
     {"slices", T_UINT, offsetof(vulkan_Resource, slices), 0, "resource number of slices"},
     {"heap_size", T_ULONGLONG, offsetof(vulkan_Resource, heap_size), 0, "resource heap size"},
+    {"heap_type", T_INT, offsetof(vulkan_Resource, heap_type), 0, "resource heap type"},
     {"tiles_x", T_UINT, offsetof(vulkan_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
     {"tiles_y", T_UINT, offsetof(vulkan_Resource, tiles_y), 0, "sparsed resource number of tiles on y axis"},
     {"tiles_z", T_UINT, offsetof(vulkan_Resource, tiles_z), 0, "sparsed resource number of tiles on z axis"},
@@ -3198,7 +3204,18 @@ static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args
             return PyErr_Format(PyExc_ValueError, "Cannot use heap from a different device");
         }
 
-        // TODO check heap size and type
+        if (py_vulkan_heap->heap_type != self->heap_type)
+        {
+            return PyErr_Format(Compushady_BufferError, "Unsupported heap type");
+        }
+
+        if (heap_offset >= py_vulkan_heap->size)
+        {
+            return PyErr_Format(Compushady_BufferError,
+                                "Invalid heap offset (%llu) "
+                                "(heap size %llu)",
+                                heap_offset, py_vulkan_heap->size);
+        }
 
         memory = py_vulkan_heap->memory;
     }
