@@ -54,6 +54,12 @@ typedef struct d3d12_Resource
 	d3d12_Heap *py_heap;
 	UINT slices;
 	SIZE_T heap_size;
+	UINT tiles_x;
+	UINT tiles_y;
+	UINT tiles_z;
+	UINT tile_width;
+	UINT tile_height;
+	UINT tile_depth;
 } d3d12_Resource;
 
 typedef struct d3d12_Swapchain
@@ -111,6 +117,12 @@ static PyMemberDef d3d12_Resource_members[] = {
 	{"row_pitch", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.RowPitch), 0, "resource row pitch"},
 	{"slices", T_UINT, offsetof(d3d12_Resource, slices), 0, "resource number of slices"},
 	{"heap_size", T_ULONGLONG, offsetof(d3d12_Resource, heap_size), 0, "resource heap size"},
+	{"tiles_x", T_UINT, offsetof(d3d12_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
+	{"tiles_y", T_UINT, offsetof(d3d12_Resource, tiles_y), 0, "sparsed resource number of tiles on y axis"},
+	{"tiles_z", T_UINT, offsetof(d3d12_Resource, tiles_z), 0, "sparsed resource number of tiles on z axis"},
+	{"tile_width", T_UINT, offsetof(d3d12_Resource, tile_width), 0, "sparsed resource tile width"},
+	{"tile_height", T_UINT, offsetof(d3d12_Resource, tile_height), 0, "sparsed resource tile height"},
+	{"tile_depth", T_UINT, offsetof(d3d12_Resource, tile_depth), 0, "sparsed resource tile depth"},
 	{NULL} /* Sentinel */
 };
 
@@ -671,7 +683,8 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	DXGI_FORMAT format;
 	PyObject *py_heap;
 	SIZE_T heap_offset;
-	if (!PyArg_ParseTuple(args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
+	PyObject *py_sparse;
+	if (!PyArg_ParseTuple(args, "iKIiOKO", &heap_type, &size, &stride, &format, &py_heap, &heap_offset, &py_sparse))
 		return NULL;
 
 	if (format > 0)
@@ -684,6 +697,8 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 
 	if (!size)
 		return PyErr_Format(Compushady_BufferError, "zero size buffer");
+
+	const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
 
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
 	if (!py_device)
@@ -729,8 +744,16 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	D3D12_RESOURCE_ALLOCATION_INFO allocation_info = py_device->device->GetResourceAllocationInfo(0, 1, (D3D12_RESOURCE_DESC *)&resource_desc);
 
 	bool has_heap = false;
+	UINT tiles = 0;
+	UINT tile_width = 0;
+	UINT tile_height = 0;
+	UINT tile_depth = 0;
 
-	if (py_heap && py_heap != Py_None)
+	if (sparse)
+	{
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+	}
+	else if (py_heap && py_heap != Py_None)
 	{
 		int ret = PyObject_IsInstance(py_heap, (PyObject *)&d3d12_Heap_Type);
 		if (ret < 0)
@@ -792,6 +815,20 @@ static PyObject *d3d12_Device_create_buffer(d3d12_Device *self, PyObject *args)
 	py_resource->format = format;
 	py_resource->slices = 1;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+
+	if (sparse)
+	{
+		D3D12_TILE_SHAPE shape = {};
+		D3D12_SUBRESOURCE_TILING tiling = {};
+		UINT num_subresources = 1;
+		py_device->device->GetResourceTiling(resource, NULL, NULL, &shape, &num_subresources, 0, &tiling);
+		py_resource->tile_width = shape.WidthInTexels;
+		py_resource->tile_height = shape.HeightInTexels;
+		py_resource->tile_depth = shape.DepthInTexels;
+		py_resource->tiles_x = tiling.WidthInTiles;
+		py_resource->tiles_y = tiling.HeightInTiles;
+		py_resource->tiles_z = tiling.DepthInTiles;
+	}
 
 	if (has_heap)
 	{
@@ -2044,6 +2081,72 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
+static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
+{
+	UINT x;
+	UINT y;
+	UINT z;
+	PyObject *py_heap;
+	UINT64 heap_offset;
+
+	if (!PyArg_ParseTuple(args, "IIIOK", &x, &y, &z, &py_heap, &heap_offset))
+		return NULL;
+
+	if (self->tiles_x == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "Not a sparsed Resource");
+	}
+
+	if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
+	{
+		PyErr_Format(PyExc_ValueError,
+					 "Tile (%u, %u, %u) is out of bounds "
+					 "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
+					 x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
+	}
+
+	ID3D12Heap *heap = NULL;
+	if (py_heap && py_heap != Py_None)
+	{
+		int ret = PyObject_IsInstance(py_heap, (PyObject *)&d3d12_Heap_Type);
+		if (ret < 0)
+		{
+			return NULL;
+		}
+		else if (ret == 0)
+		{
+			return PyErr_Format(PyExc_ValueError, "Expected a Heap object");
+		}
+
+		d3d12_Heap *py_d3d12_heap = (d3d12_Heap *)py_heap;
+
+		if (py_d3d12_heap->py_device != self->py_device)
+		{
+			return PyErr_Format(PyExc_ValueError, "Cannot use heap from a different device");
+		}
+
+		// TODO check heap size
+
+		heap = py_d3d12_heap->heap;
+	}
+
+	D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
+	coordinate.X = x;
+	coordinate.Y = y;
+	coordinate.Z = z;
+
+	const UINT offset = (UINT)heap_offset;
+
+	self->py_device->queue->UpdateTileMappings(self->resource, 1, &coordinate, NULL, heap, 1, NULL, &offset, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
+
+	Py_RETURN_NONE;
+}
+
 static PyMethodDef d3d12_Resource_methods[] = {
 	{"upload", (PyCFunction)d3d12_Resource_upload, METH_VARARGS, "Upload bytes to a GPU Resource"},
 	{"upload2d", (PyCFunction)d3d12_Resource_upload2d, METH_VARARGS, "Upload bytes to a GPU Resource given pitch, width, height and pixel size"},
@@ -2052,6 +2155,7 @@ static PyMethodDef d3d12_Resource_methods[] = {
 	{"readback_to_buffer", (PyCFunction)d3d12_Resource_readback_to_buffer, METH_VARARGS, "Readback into a buffer from a GPU Resource"},
 	{"readback2d", (PyCFunction)d3d12_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	{"copy_to", (PyCFunction)d3d12_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
+	{"bind_tile", (PyCFunction)d3d12_Resource_bind_tile, METH_VARARGS, "Bind a sparse resource tile to a heap"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 

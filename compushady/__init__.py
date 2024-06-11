@@ -144,6 +144,40 @@ class Resource:
     def heap_size(self):
         return self.handle.heap_size
 
+    def bind_tile(
+        self,
+        x,
+        y,
+        z,
+        heap,
+        heap_offset=0,
+    ):
+        self.handle.bind_tile(x, y, z, heap.handle if heap else None, heap_offset)
+
+    @property
+    def tiles_x(self):
+        return self.handle.tiles_x
+
+    @property
+    def tiles_y(self):
+        return self.handle.tiles_y
+
+    @property
+    def tiles_z(self):
+        return self.handle.tiles_z
+
+    @property
+    def tile_width(self):
+        return self.handle.tile_width
+
+    @property
+    def tile_height(self):
+        return self.handle.tile_height
+
+    @property
+    def tile_depth(self):
+        return self.handle.tile_depth
+
 
 class Buffer(Resource):
     def __init__(
@@ -154,12 +188,19 @@ class Buffer(Resource):
         format=0,
         heap=None,
         heap_offset=0,
+        sparse=False,
         device=None,
     ):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_buffer(
-            heap_type, size, stride, format, heap.handle if heap else None, heap_offset
+            heap_type,
+            size,
+            stride,
+            format,
+            heap.handle if heap else None,
+            heap_offset,
+            sparse,
         )
 
     def upload(self, data, offset=0):

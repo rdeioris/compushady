@@ -1,6 +1,8 @@
 import unittest
 from compushady import (
     Buffer,
+    Heap,
+    HEAP_DEFAULT,
     HEAP_UPLOAD,
     HEAP_READBACK,
     BufferException,
@@ -98,3 +100,30 @@ class BufferTests(unittest.TestCase):
         b1 = Buffer(64)
         b2 = Buffer(64)
         self.assertRaises(ValueError, b1.copy_to, b2, 65)
+
+    def test_sparse(self):
+        heap = Heap(HEAP_DEFAULT, 1024 * 1024)
+        print(heap.size)
+        b1 = Buffer(1024 * 1024 * 2, sparse=True)
+        print(b1.tiles_x, b1.tile_width)
+        b0 = Buffer(b1.size, HEAP_UPLOAD)
+        b2 = Buffer(b1.size, HEAP_READBACK)
+
+        b0.upload(b"\xff\xee\xdd\xaa")
+
+        b1.bind_tile(0, 0, 0, heap)
+        b1.bind_tile(1, 0, 0, heap)
+        b1.bind_tile(0, 0, 0, heap)
+        """
+        b1.bind_tile(1, 0, 0, heap)
+        b1.bind_tile(2, 0, 0, heap)
+        b1.bind_tile(0, 0, 0, heap)
+        b1.bind_tile(0, 0, 0, heap)
+        """
+
+        b0.copy_to(b1)
+
+        b1.copy_to(b2)
+        self.assertEqual(b2.readback(4), b"\xff\xee\xdd\xaa")
+        self.assertEqual(b2.readback(4, b0.tile_width), b"\xff\xee\xdd\xaa")
+        self.assertEqual(b2.readback(4, b0.tile_width * 2), b"\xff\xee\xdd\xaa")
