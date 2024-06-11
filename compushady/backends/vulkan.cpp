@@ -3178,7 +3178,7 @@ static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args
 
     if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
     {
-        PyErr_Format(PyExc_ValueError,
+        return PyErr_Format(PyExc_ValueError,
                      "Tile (%u, %u, %u) is out of bounds "
                      "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
                      x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);

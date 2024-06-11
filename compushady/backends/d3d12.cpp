@@ -2124,7 +2124,7 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 
 	if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
 	{
-		PyErr_Format(PyExc_ValueError,
+		return PyErr_Format(PyExc_ValueError,
 					 "Tile (%u, %u, %u) is out of bounds "
 					 "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
 					 x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
@@ -2175,10 +2175,10 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 	D3D12_TILE_REGION_SIZE tile_region_size = {};
 	tile_region_size.NumTiles = 1;
 
-	const D3D12_TILE_RANGE_FLAGS tile_range_flags = D3D12_TILE_RANGE_FLAG_NONE;
+	const D3D12_TILE_RANGE_FLAGS tile_range_flags = heap ? D3D12_TILE_RANGE_FLAG_NONE : D3D12_TILE_RANGE_FLAG_NULL;
 
 	const UINT tile_counts = 1;
-	const UINT offset = (UINT)heap_offset;
+	const UINT offset = heap ? (UINT)heap_offset : 0;
 
 	self->py_device->queue->UpdateTileMappings(self->resource, 1, &tile_coordinate, &tile_region_size, heap, 1, &tile_range_flags, &offset, &tile_counts, D3D12_TILE_MAPPING_FLAG_NONE);
 	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
