@@ -1050,7 +1050,8 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	PyObject *py_heap;
 	SIZE_T heap_offset;
 	UINT slices;
-	if (!PyArg_ParseTuple(args, "IIiOKI", &width, &height, &format, &py_heap, &heap_offset, &slices))
+	PyObject *py_sparse;
+	if (!PyArg_ParseTuple(args, "IIiOKIO", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse))
 		return NULL;
 
 	if (width == 0)
@@ -1073,6 +1074,8 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
 
+	const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -1089,7 +1092,7 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	resource_desc.DepthOrArraySize = slices;
 	resource_desc.MipLevels = 1;
 	resource_desc.Format = format;
-	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	resource_desc.Layout = sparse ? D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE : D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
@@ -1103,7 +1106,11 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	HRESULT hr;
 	bool has_heap = false;
 
-	if (py_heap && py_heap != Py_None)
+	if (sparse)
+	{
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+	}
+	else if (py_heap && py_heap != Py_None)
 	{
 		int ret = PyObject_IsInstance(py_heap, (PyObject *)&d3d12_Heap_Type);
 		if (ret < 0)
@@ -1165,6 +1172,20 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	py_resource->format = format;
 	py_resource->slices = slices;
 	py_resource->heap_size = allocation_info.SizeInBytes;
+
+	if (sparse)
+	{
+		D3D12_TILE_SHAPE shape = {};
+		D3D12_SUBRESOURCE_TILING tiling = {};
+		UINT num_subresources = 1;
+		py_device->device->GetResourceTiling(resource, NULL, NULL, &shape, &num_subresources, 0, &tiling);
+		py_resource->tile_width = shape.WidthInTexels;
+		py_resource->tile_height = shape.HeightInTexels;
+		py_resource->tile_depth = shape.DepthInTexels;
+		py_resource->tiles_x = tiling.WidthInTiles;
+		py_resource->tiles_y = tiling.HeightInTiles;
+		py_resource->tiles_z = tiling.DepthInTiles;
+	}
 
 	if (has_heap)
 	{
@@ -2088,8 +2109,8 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 	UINT z;
 	PyObject *py_heap;
 	UINT64 heap_offset;
-
-	if (!PyArg_ParseTuple(args, "IIIOK", &x, &y, &z, &py_heap, &heap_offset))
+	UINT slice;
+	if (!PyArg_ParseTuple(args, "IIIOKI", &x, &y, &z, &py_heap, &heap_offset, &slice))
 		return NULL;
 
 	if (self->tiles_x == 0)
@@ -2134,6 +2155,7 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 	tile_coordinate.X = x;
 	tile_coordinate.Y = y;
 	tile_coordinate.Z = z;
+	tile_coordinate.Subresource = slice;
 
 	D3D12_TILE_REGION_SIZE tile_region_size = {};
 	tile_region_size.NumTiles = 1;
