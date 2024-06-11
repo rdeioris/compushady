@@ -88,6 +88,12 @@ typedef struct vulkan_Resource
     uint64_t heap_offset;
     uint32_t slices;
     uint64_t heap_size;
+    uint32_t tiles_x;
+    uint32_t tiles_y;
+    uint32_t tiles_z;
+    uint32_t tile_width;
+    uint32_t tile_height;
+    uint32_t tile_depth;
 } vulkan_Resource;
 
 typedef struct vulkan_Compute
@@ -710,7 +716,7 @@ static PyObject *vulkan_instance_check()
 #ifdef __APPLE__
     if (portability_enumeration)
     {
-    	instance_create_info.flags = 0x00000001 /* VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR */;
+        instance_create_info.flags = 0x00000001 /* VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR */;
     }
 #endif
 
@@ -852,8 +858,14 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             create_info.ppEnabledExtensionNames = extensions.data();
             create_info.enabledLayerCount = (uint32_t)layers.size();
             create_info.ppEnabledLayerNames = layers.data();
+#ifndef VK_EXT_descriptor_indexing
+            if (!self->supports_bindless || (!mutable_ext && !mutable_valve))
+            {
+                create_info.pEnabledFeatures = &self->features;
+            }
+#endif
 
-            VkResult result = (VkResult) -13 /* VK_ERROR_UNKNOWN*/ ;
+            VkResult result = (VkResult)-13 /* VK_ERROR_UNKNOWN*/;
 
             if (self->supports_bindless)
             {
@@ -879,6 +891,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
                     VkPhysicalDeviceFeatures2 deviceFeatures = {};
                     deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
                     deviceFeatures.pNext = &descriptor_indexing_features;
+                    deviceFeatures.features = self->features;
 
                     create_info.pNext = &deviceFeatures;
                     result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
@@ -905,6 +918,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
                     VkPhysicalDeviceFeatures2 deviceFeatures = {};
                     deviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
                     deviceFeatures.pNext = &descriptor_indexing_features;
+                    deviceFeatures.features = self->features;
 
                     create_info.pNext = &deviceFeatures;
                     result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
@@ -916,7 +930,7 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
             {
                 result = vkCreateDevice(self->physical_device, &create_info, nullptr, &device);
             }
-            
+
             if (result != VK_SUCCESS)
             {
                 PyErr_Format(PyExc_Exception, "Unable to create vulkan device");
@@ -1049,7 +1063,8 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     int format;
     PyObject *py_heap;
     uint64_t heap_offset;
-    if (!PyArg_ParseTuple(args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
+    PyObject *py_sparse;
+    if (!PyArg_ParseTuple(args, "iKIiOKO", &heap_type, &size, &stride, &format, &py_heap, &heap_offset, &py_sparse))
         return NULL;
 
     if (format > 0)
@@ -1063,6 +1078,8 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     if (!size)
         return PyErr_Format(Compushady_BufferError, "zero size buffer");
 
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+
     vulkan_Device *py_device = vulkan_Device_get_device(self);
     if (!py_device)
         return NULL;
@@ -1072,6 +1089,11 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     buffer_create_info.size = size;
     buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+
+    if (sparse)
+    {
+        buffer_create_info.flags = VK_BUFFER_CREATE_SPARSE_BINDING_BIT | VK_BUFFER_CREATE_SPARSE_RESIDENCY_BIT | VK_BUFFER_CREATE_SPARSE_ALIASED_BIT;
+    }
 
     VkMemoryPropertyFlagBits mem_flag = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
@@ -1108,7 +1130,17 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(py_device->device, py_resource->buffer, &requirements);
 
-    if (py_heap && py_heap != Py_None)
+    if (sparse)
+    {
+        py_resource->tile_width = static_cast<uint32_t>(requirements.alignment);
+        py_resource->tile_height = 1;
+        py_resource->tile_depth = 1;
+        py_resource->tiles_x = static_cast<uint32_t>(ceil(static_cast<double>(requirements.size) / requirements.alignment));
+        py_resource->tiles_y = 1;
+        py_resource->tiles_z = 1;
+        heap_offset = 0;
+    }
+    else if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject *)&vulkan_Heap_Type);
         if (ret < 0)
@@ -1161,11 +1193,14 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
         heap_offset = 0;
     }
 
-    result = vkBindBufferMemory(py_device->device, py_resource->buffer, py_resource->memory, heap_offset);
-    if (result != VK_SUCCESS)
+    if (!sparse)
     {
-        Py_DECREF(py_resource);
-        return PyErr_Format(Compushady_BufferError, "unable to bind vulkan Buffer memory");
+        result = vkBindBufferMemory(py_device->device, py_resource->buffer, py_resource->memory, heap_offset);
+        if (result != VK_SUCCESS)
+        {
+            Py_DECREF(py_resource);
+            return PyErr_Format(Compushady_BufferError, "unable to bind vulkan Buffer memory");
+        }
     }
 
     if (format > 0)
@@ -2664,6 +2699,12 @@ static PyMemberDef vulkan_Resource_members[] = {
     {"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
     {"slices", T_UINT, offsetof(vulkan_Resource, slices), 0, "resource number of slices"},
     {"heap_size", T_ULONGLONG, offsetof(vulkan_Resource, heap_size), 0, "resource heap size"},
+    {"tiles_x", T_UINT, offsetof(vulkan_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
+    {"tiles_y", T_UINT, offsetof(vulkan_Resource, tiles_y), 0, "sparsed resource number of tiles on y axis"},
+    {"tiles_z", T_UINT, offsetof(vulkan_Resource, tiles_z), 0, "sparsed resource number of tiles on z axis"},
+    {"tile_width", T_UINT, offsetof(vulkan_Resource, tile_width), 0, "sparsed resource tile width"},
+    {"tile_height", T_UINT, offsetof(vulkan_Resource, tile_height), 0, "sparsed resource tile height"},
+    {"tile_depth", T_UINT, offsetof(vulkan_Resource, tile_depth), 0, "sparsed resource tile depth"},
     {NULL} /* Sentinel */
 };
 
@@ -3082,6 +3123,92 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
 }
 
+static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args)
+{
+    uint32_t x;
+    uint32_t y;
+    uint32_t z;
+    PyObject *py_heap;
+    uint64_t heap_offset;
+
+    if (!PyArg_ParseTuple(args, "IIIOK", &x, &y, &z, &py_heap, &heap_offset))
+        return NULL;
+
+    if (self->tiles_x == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "Not a sparsed Resource");
+    }
+
+    if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
+    {
+        PyErr_Format(PyExc_ValueError,
+                     "Tile (%u, %u, %u) is out of bounds "
+                     "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
+                     x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
+    }
+
+    VkDeviceMemory memory = VK_NULL_HANDLE;
+    if (py_heap && py_heap != Py_None)
+    {
+        int ret = PyObject_IsInstance(py_heap, (PyObject *)&vulkan_Heap_Type);
+        if (ret < 0)
+        {
+            return NULL;
+        }
+        else if (ret == 0)
+        {
+            return PyErr_Format(PyExc_ValueError, "Expected a Heap object");
+        }
+
+        vulkan_Heap *py_vulkan_heap = (vulkan_Heap *)py_heap;
+
+        if (py_vulkan_heap->py_device != self->py_device)
+        {
+            return PyErr_Format(PyExc_ValueError, "Cannot use heap from a different device");
+        }
+
+        // TODO check heap size and type
+
+        memory = py_vulkan_heap->memory;
+    }
+
+    VkBindSparseInfo bind_sparse_info = {};
+    bind_sparse_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
+    VkSparseBufferMemoryBindInfo sparse_buffer_memory_bind_info = {};
+    VkSparseMemoryBind sparse_memory_bind = {};
+
+    sparse_memory_bind.memory = memory;
+    sparse_memory_bind.memoryOffset = heap_offset;
+
+    if (self->buffer)
+    {
+        sparse_memory_bind.resourceOffset = x * self->tile_width;
+        sparse_memory_bind.size = self->tile_width;
+        sparse_buffer_memory_bind_info.buffer = self->buffer;
+        sparse_buffer_memory_bind_info.bindCount = 1;
+        sparse_buffer_memory_bind_info.pBinds = &sparse_memory_bind;
+        bind_sparse_info.bufferBindCount = 1;
+        bind_sparse_info.pBufferBinds = &sparse_buffer_memory_bind_info;
+    }
+    else
+    {
+    }
+
+    VkResult result = vkQueueBindSparse(self->py_device->queue, 1, &bind_sparse_info, VK_NULL_HANDLE);
+
+    if (result == VK_SUCCESS)
+    {
+        Py_BEGIN_ALLOW_THREADS;
+        vkQueueWaitIdle(self->py_device->queue);
+        Py_END_ALLOW_THREADS;
+        Py_RETURN_NONE;
+    }
+
+    return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef vulkan_Resource_methods[] = {
     {"upload", (PyCFunction)vulkan_Resource_upload, METH_VARARGS,
      "Upload bytes to a GPU Resource"},
@@ -3100,6 +3227,7 @@ static PyMethodDef vulkan_Resource_methods[] = {
      "Readback into a buffer from a GPU Resource"},
     {"copy_to", (PyCFunction)vulkan_Resource_copy_to, METH_VARARGS,
      "Copy resource content to another resource"},
+    {"bind_tile", (PyCFunction)vulkan_Resource_bind_tile, METH_VARARGS, "Bind a sparse resource tile to a heap"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
