@@ -103,27 +103,24 @@ class BufferTests(unittest.TestCase):
 
     def test_sparse(self):
         heap = Heap(HEAP_DEFAULT, 1024 * 1024)
-        print(heap.size)
-        b1 = Buffer(1024 * 1024 * 2, sparse=True)
-        print(b1.tiles_x, b1.tile_width)
-        b0 = Buffer(b1.size, HEAP_UPLOAD)
-        b2 = Buffer(b1.size, HEAP_READBACK)
+        b0 = Buffer(1024 * 1024 * 2, sparse=True)
 
-        b0.upload(b"\xff\xee\xdd\xaa")
+        b_upload = Buffer(4, HEAP_UPLOAD)
+        b_readback = Buffer(4, HEAP_READBACK)
 
-        b1.bind_tile(0, 0, 0, heap)
-        b1.bind_tile(1, 0, 0, heap)
-        b1.bind_tile(0, 0, 0, heap)
-        """
-        b1.bind_tile(1, 0, 0, heap)
-        b1.bind_tile(2, 0, 0, heap)
-        b1.bind_tile(0, 0, 0, heap)
-        b1.bind_tile(0, 0, 0, heap)
-        """
+        b_upload.upload(b"\xff\xee\xdd\xaa")
 
-        b0.copy_to(b1)
+        b0.bind_tile(0, 0, 0, heap)
+        b0.bind_tile(1, 0, 0, heap)
+        b0.bind_tile(2, 0, 0, heap)
 
-        b1.copy_to(b2)
-        self.assertEqual(b2.readback(4), b"\xff\xee\xdd\xaa")
-        self.assertEqual(b2.readback(4, b0.tile_width), b"\xff\xee\xdd\xaa")
-        self.assertEqual(b2.readback(4, b0.tile_width * 2), b"\xff\xee\xdd\xaa")
+        b_upload.copy_to(b0, size=4, dst_offset=b0.tile_width * 2)
+
+        b0.copy_to(b_readback, size=4, src_offset=b0.tile_width * 2)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")
+
+        b0.copy_to(b_readback, size=4, src_offset=b0.tile_width)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")
+
+        b0.copy_to(b_readback, size=4, src_offset=0)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")

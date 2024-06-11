@@ -2130,14 +2130,20 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 		heap = py_d3d12_heap->heap;
 	}
 
-	D3D12_TILED_RESOURCE_COORDINATE coordinate = {};
-	coordinate.X = x;
-	coordinate.Y = y;
-	coordinate.Z = z;
+	D3D12_TILED_RESOURCE_COORDINATE tile_coordinate = {};
+	tile_coordinate.X = x;
+	tile_coordinate.Y = y;
+	tile_coordinate.Z = z;
 
+	D3D12_TILE_REGION_SIZE tile_region_size = {};
+	tile_region_size.NumTiles = 1;
+
+	const D3D12_TILE_RANGE_FLAGS tile_range_flags = D3D12_TILE_RANGE_FLAG_NONE;
+
+	const UINT tile_counts = 1;
 	const UINT offset = (UINT)heap_offset;
 
-	self->py_device->queue->UpdateTileMappings(self->resource, 1, &coordinate, NULL, heap, 1, NULL, &offset, NULL, D3D12_TILE_MAPPING_FLAG_NONE);
+	self->py_device->queue->UpdateTileMappings(self->resource, 1, &tile_coordinate, &tile_region_size, heap, 1, &tile_range_flags, &offset, &tile_counts, D3D12_TILE_MAPPING_FLAG_NONE);
 	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
 	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
 	Py_BEGIN_ALLOW_THREADS;
