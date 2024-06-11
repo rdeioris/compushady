@@ -1,5 +1,5 @@
 import unittest
-from compushady import Texture2D, Buffer, HEAP_UPLOAD, HEAP_READBACK
+from compushady import Texture2D, Buffer, HEAP_UPLOAD, HEAP_READBACK, Heap, HEAP_DEFAULT
 from compushady.formats import (
     R8G8B8A8_UINT,
     R8G8B8A8_UNORM,
@@ -82,3 +82,55 @@ class Texture2DTests(unittest.TestCase):
             t0_readback.readback2d(t0.row_pitch, t0.width, t0.height, 4),
             b"\xff\xff\xff\xff\xaa\xaa\xaa\xaa\xbb\xbb\xbb\xbb\xcc\xcc\xcc\xcc",
         )
+
+    def test_sparse(self):
+        heap = Heap(HEAP_DEFAULT, 1024 * 1024)
+        t0 = Texture2D(1024, 1024, format=R8G8B8A8_UNORM, sparse=True)
+
+        staging_texture = Texture2D(
+            t0.tile_width, t0.tile_height, format=R8G8B8A8_UNORM
+        )
+
+        b_upload = Buffer(staging_texture.size, HEAP_UPLOAD)
+        b_readback = Buffer(staging_texture.size, HEAP_READBACK)
+
+        b_upload.upload(b"\xff\xee\xdd\xaa")
+
+        t0.bind_tile(0, 0, 0, heap)
+        t0.bind_tile(1, 0, 0, heap)
+        t0.bind_tile(2, 0, 0, heap)
+
+        b_upload.copy_to(staging_texture)
+        staging_texture.copy_to(
+            t0, dst_x=0, dst_y=0, width=t0.tile_width, height=t0.tile_height
+        )
+
+        t0.copy_to(
+            staging_texture,
+            src_x=0,
+            src_y=0,
+            width=t0.tile_width,
+            height=t0.tile_height,
+        )
+        staging_texture.copy_to(b_readback)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")
+
+        t0.copy_to(
+            staging_texture,
+            src_x=t0.tile_width,
+            src_y=0,
+            width=t0.tile_width,
+            height=t0.tile_height,
+        )
+        staging_texture.copy_to(b_readback)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")
+
+        t0.copy_to(
+            staging_texture,
+            src_x=t0.tile_width * 2,
+            src_y=0,
+            width=t0.tile_width,
+            height=t0.tile_height,
+        )
+        staging_texture.copy_to(b_readback)
+        self.assertEqual(b_readback.readback(4), b"\xff\xee\xdd\xaa")

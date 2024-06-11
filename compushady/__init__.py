@@ -151,8 +151,11 @@ class Resource:
         z,
         heap,
         heap_offset=0,
+        slice=0,
     ):
-        self.handle.bind_tile(x, y, z, heap.handle if heap else None, heap_offset)
+        self.handle.bind_tile(
+            x, y, z, heap.handle if heap else None, heap_offset, slice
+        )
 
     @property
     def tiles_x(self):
@@ -244,12 +247,26 @@ class Texture1D(Resource):
 
 class Texture2D(Resource):
     def __init__(
-        self, width, height, format, heap=None, heap_offset=0, slices=1, device=None
+        self,
+        width,
+        height,
+        format,
+        heap=None,
+        heap_offset=0,
+        slices=1,
+        sparse=False,
+        device=None,
     ):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_texture2d(
-            width, height, format, heap.handle if heap else None, heap_offset, slices
+            width,
+            height,
+            format,
+            heap.handle if heap else None,
+            heap_offset,
+            slices,
+            sparse,
         )
 
     @property
