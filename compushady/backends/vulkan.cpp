@@ -3220,6 +3220,10 @@ static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args
         memory = py_vulkan_heap->memory;
     }
 
+    Py_XDECREF(self->py_heap);
+	self->py_heap = memory ? (vulkan_Heap *)py_heap : NULL;
+	Py_XINCREF(self->py_heap);
+
     VkBindSparseInfo bind_sparse_info = {};
     bind_sparse_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;
     VkSparseBufferMemoryBindInfo sparse_buffer_memory_bind_info = {};

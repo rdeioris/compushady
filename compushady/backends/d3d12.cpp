@@ -2125,9 +2125,9 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 	if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
 	{
 		return PyErr_Format(PyExc_ValueError,
-					 "Tile (%u, %u, %u) is out of bounds "
-					 "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
-					 x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
+							"Tile (%u, %u, %u) is out of bounds "
+							"(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
+							x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
 	}
 
 	ID3D12Heap *heap = NULL;
@@ -2165,6 +2165,10 @@ static PyObject *d3d12_Resource_bind_tile(d3d12_Resource *self, PyObject *args)
 
 		heap = py_d3d12_heap->heap;
 	}
+
+	Py_XDECREF(self->py_heap);
+	self->py_heap = heap ? (d3d12_Heap *)py_heap : NULL;
+	Py_XINCREF(self->py_heap);
 
 	D3D12_TILED_RESOURCE_COORDINATE tile_coordinate = {};
 	tile_coordinate.X = x;
