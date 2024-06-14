@@ -997,7 +997,7 @@ static PyObject* metal_Device_create_heap(metal_Device* self, PyObject* args)
     Py_INCREF(py_heap->py_device);
 
     py_heap->heap = heap;
-    py_heap->size = size;
+    py_heap->size = [heap currentAllocatedSize];
     py_heap->heap_type = heap_type;
 
     return (PyObject*)py_heap;
