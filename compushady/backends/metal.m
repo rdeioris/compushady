@@ -793,7 +793,8 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
     int format;
     PyObject* py_heap;
     size_t heap_offset;
-    if (!PyArg_ParseTuple(args, "iKIiOK", &heap_type, &size, &stride, &format, &py_heap, &heap_offset))
+    PyObject* py_sparse;
+    if (!PyArg_ParseTuple(args, "iKIiOKO", &heap_type, &size, &stride, &format, &py_heap, &heap_offset, &py_sparse))
         return NULL;
 
     if (!size)
@@ -805,6 +806,12 @@ static PyObject* metal_Device_create_buffer(metal_Device* self, PyObject* args)
         {
             return PyErr_Format(PyExc_ValueError, "invalid pixel format");
         }
+    }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+    if (sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
     }
 
     metal_Device* py_device = metal_Device_get_device(self);
@@ -1158,7 +1165,8 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     PyObject* py_heap;
     size_t heap_offset;
     uint32_t slices;
-    if (!PyArg_ParseTuple(args, "IIiOKI", &width, &height, &format, &py_heap, &heap_offset, &slices))
+    PyObject* py_sparse;
+    if (!PyArg_ParseTuple(args, "IIiOKIO", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse))
         return NULL;
 
     if (width == 0)
@@ -1174,6 +1182,12 @@ static PyObject* metal_Device_create_texture2d(metal_Device* self, PyObject* arg
     if (metal_formats.find(format) == metal_formats.end())
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+    if (sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
     }
 
     metal_Device* py_device = metal_Device_get_device(self);
@@ -1263,7 +1277,8 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     PyObject* py_heap;
     size_t heap_offset;
     uint32_t slices;
-    if (!PyArg_ParseTuple(args, "IiOKI", &width, &format, &py_heap, &heap_offset, &slices))
+    PyObject* py_sparse;
+    if (!PyArg_ParseTuple(args, "IiOKIO", &width, &format, &py_heap, &heap_offset, &slices, &py_sparse))
         return NULL;
 
     if (width == 0)
@@ -1279,6 +1294,12 @@ static PyObject* metal_Device_create_texture1d(metal_Device* self, PyObject* arg
     if (metal_formats.find(format) == metal_formats.end())
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+    if (sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
     }
 
     metal_Device* py_device = metal_Device_get_device(self);
@@ -1369,7 +1390,8 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     int format;
     PyObject* py_heap;
     size_t heap_offset;
-    if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
+    PyObject* py_sparse;
+    if (!PyArg_ParseTuple(args, "IIIiOKO", &width, &height, &depth, &format, &py_heap, &heap_offset, &py_sparse))
         return NULL;
 
     if (width == 0)
@@ -1390,6 +1412,12 @@ static PyObject* metal_Device_create_texture3d(metal_Device* self, PyObject* arg
     if (metal_formats.find(format) == metal_formats.end())
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");
+    }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
+    if (sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
     }
 
     metal_Device* py_device = metal_Device_get_device(self);

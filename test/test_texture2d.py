@@ -10,6 +10,7 @@ import compushady.config
 
 compushady.config.set_debug(True)
 import struct
+import platform
 
 
 class Texture2DTests(unittest.TestCase):
@@ -83,6 +84,9 @@ class Texture2DTests(unittest.TestCase):
             b"\xff\xff\xff\xff\xaa\xaa\xaa\xaa\xbb\xbb\xbb\xbb\xcc\xcc\xcc\xcc",
         )
 
+    @unittest.skipIf(
+        platform.system() == "Darwin", "Tests meaningless on Apple platform"
+    )
     def test_sparse(self):
         heap = Heap(HEAP_DEFAULT, 1024 * 1024)
         t0 = Texture2D(1024, 1024, format=R8G8B8A8_UNORM, sparse=True)

@@ -9,6 +9,7 @@ from compushady import (
     get_current_device,
 )
 import compushady.config
+import platform
 
 compushady.config.set_debug(True)
 
@@ -101,6 +102,9 @@ class BufferTests(unittest.TestCase):
         b2 = Buffer(64)
         self.assertRaises(ValueError, b1.copy_to, b2, 65)
 
+    @unittest.skipIf(
+        platform.system() == "Darwin", "Tests meaningless on Apple platform"
+    )
     def test_sparse(self):
         heap = Heap(HEAP_DEFAULT, 1024 * 1024)
         b0 = Buffer(1024 * 1024 * 2, sparse=True)

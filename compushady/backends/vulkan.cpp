@@ -57,6 +57,7 @@ typedef struct vulkan_Device
     char is_discrete;
     VkPhysicalDeviceFeatures features;
     bool supports_bindless;
+    bool supports_sparse;
 } vulkan_Device;
 
 typedef struct vulkan_Heap
@@ -830,6 +831,8 @@ static vulkan_Device *vulkan_Device_get_device(vulkan_Device *self)
 
     self->supports_bindless = descriptor_indexing && (mutable_ext || mutable_valve);
 
+    self->supports_sparse = self->features.sparseBinding;
+
     uint32_t num_queue_families = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(self->physical_device, &num_queue_families, nullptr);
 
@@ -1090,6 +1093,11 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
     if (!py_device)
         return NULL;
 
+    if (sparse && !py_device->supports_sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
+    }
+
     VkBufferCreateInfo buffer_create_info = {};
     buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_create_info.size = size;
@@ -1315,6 +1323,11 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     if (!py_device)
         return NULL;
 
+    if (sparse && !py_device->supports_sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
+    }
+
     vulkan_Resource *py_resource = (vulkan_Resource *)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
     if (!py_resource)
     {
@@ -1498,6 +1511,11 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     if (!py_device)
         return NULL;
 
+    if (sparse && !py_device->supports_sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
+    }
+
     vulkan_Resource *py_resource = (vulkan_Resource *)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
     if (!py_resource)
     {
@@ -1674,6 +1692,11 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     vulkan_Device *py_device = vulkan_Device_get_device(self);
     if (!py_device)
         return NULL;
+
+    if (sparse && !py_device->supports_sparse)
+    {
+        return PyErr_Format(PyExc_ValueError, "sparse resources are not supported");
+    }
 
     vulkan_Resource *py_resource = (vulkan_Resource *)PyObject_New(vulkan_Resource, &vulkan_Resource_Type);
     if (!py_resource)
