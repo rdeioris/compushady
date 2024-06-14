@@ -225,11 +225,20 @@ class Buffer(Resource):
 
 
 class Texture1D(Resource):
-    def __init__(self, width, format, heap=None, heap_offset=0, slices=1, device=None):
+    def __init__(
+        self,
+        width,
+        format,
+        heap=None,
+        heap_offset=0,
+        slices=1,
+        sparse=False,
+        device=None,
+    ):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_texture1d(
-            width, format, heap.handle if heap else None, heap_offset, slices
+            width, format, heap.handle if heap else None, heap_offset, slices, sparse
         )
 
     @property
@@ -288,12 +297,26 @@ class Texture2D(Resource):
 
 class Texture3D(Resource):
     def __init__(
-        self, width, height, depth, format, heap=None, heap_offset=0, device=None
+        self,
+        width,
+        height,
+        depth,
+        format,
+        heap=None,
+        heap_offset=0,
+        sparse=False,
+        device=None,
     ):
         self.device = device if device else get_current_device()
         self.heap = heap
         self.handle = self.device.create_texture3d(
-            width, height, depth, format, heap.handle if heap else None, heap_offset
+            width,
+            height,
+            depth,
+            format,
+            heap.handle if heap else None,
+            heap_offset,
+            sparse,
         )
 
     @property

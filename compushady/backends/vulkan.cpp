@@ -1468,7 +1468,8 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     VkFormat format;
     PyObject *py_heap;
     uint64_t heap_offset;
-    if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
+    PyObject *py_sparse;
+    if (!PyArg_ParseTuple(args, "IIIiOKO", &width, &height, &depth, &format, &py_heap, &heap_offset, &py_sparse))
         return NULL;
 
     if (width == 0)
@@ -1490,6 +1491,8 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");
     }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
 
     vulkan_Device *py_device = vulkan_Device_get_device(self);
     if (!py_device)
@@ -1515,7 +1518,28 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     VkMemoryRequirements requirements;
     vkGetImageMemoryRequirements(py_device->device, py_resource->image, &requirements);
 
-    if (py_heap && py_heap != Py_None)
+    if (sparse)
+    {
+        uint32_t memory_requirements_count = 0;
+        vkGetImageSparseMemoryRequirements(py_device->device, py_resource->image, &memory_requirements_count, NULL);
+        std::vector<VkSparseImageMemoryRequirements> sparse_image_memory_requirements(memory_requirements_count);
+        vkGetImageSparseMemoryRequirements(py_device->device, py_resource->image, &memory_requirements_count, sparse_image_memory_requirements.data());
+
+        for (const VkSparseImageMemoryRequirements &current_sparse_image_memory_requirements : sparse_image_memory_requirements)
+        {
+            if (current_sparse_image_memory_requirements.formatProperties.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
+            {
+                py_resource->tile_width = current_sparse_image_memory_requirements.formatProperties.imageGranularity.width;
+                py_resource->tile_height = current_sparse_image_memory_requirements.formatProperties.imageGranularity.height;
+                py_resource->tile_depth = current_sparse_image_memory_requirements.formatProperties.imageGranularity.depth;
+                py_resource->tiles_x = static_cast<uint32_t>(ceil(static_cast<double>(width) / py_resource->tile_width));
+                py_resource->tiles_y = static_cast<uint32_t>(ceil(static_cast<double>(height) / py_resource->tile_height));
+                py_resource->tiles_z = static_cast<uint32_t>(ceil(static_cast<double>(depth) / py_resource->tile_depth));
+            }
+        }
+        heap_offset = 0;
+    }
+    else if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject *)&vulkan_Heap_Type);
         if (ret < 0)
@@ -1569,11 +1593,14 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
         heap_offset = 0;
     }
 
-    VkResult result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, heap_offset);
-    if (result != VK_SUCCESS)
+    if (!sparse)
     {
-        Py_DECREF(py_resource);
-        return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+        VkResult result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, heap_offset);
+        if (result != VK_SUCCESS)
+        {
+            Py_DECREF(py_resource);
+            return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+        }
     }
 
     VkImageViewCreateInfo image_view_create_info = {};
@@ -1585,7 +1612,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     image_view_create_info.subresourceRange.levelCount = 1;
     image_view_create_info.subresourceRange.layerCount = 1;
 
-    result = vkCreateImageView(
+    VkResult result = vkCreateImageView(
         py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
     if (result != VK_SUCCESS)
     {
@@ -1623,7 +1650,8 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     PyObject *py_heap;
     uint64_t heap_offset;
     uint32_t slices;
-    if (!PyArg_ParseTuple(args, "IiOKI", &width, &format, &py_heap, &heap_offset, &slices))
+    PyObject *py_sparse;
+    if (!PyArg_ParseTuple(args, "IiOKIO", &width, &format, &py_heap, &heap_offset, &slices, &py_sparse))
         return NULL;
 
     if (width == 0)
@@ -1640,6 +1668,8 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     {
         return PyErr_Format(PyExc_ValueError, "invalid pixel format");
     }
+
+    const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
 
     vulkan_Device *py_device = vulkan_Device_get_device(self);
     if (!py_device)
@@ -1665,7 +1695,28 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     VkMemoryRequirements requirements;
     vkGetImageMemoryRequirements(py_device->device, py_resource->image, &requirements);
 
-    if (py_heap && py_heap != Py_None)
+    if (sparse)
+    {
+        uint32_t memory_requirements_count = 0;
+        vkGetImageSparseMemoryRequirements(py_device->device, py_resource->image, &memory_requirements_count, NULL);
+        std::vector<VkSparseImageMemoryRequirements> sparse_image_memory_requirements(memory_requirements_count);
+        vkGetImageSparseMemoryRequirements(py_device->device, py_resource->image, &memory_requirements_count, sparse_image_memory_requirements.data());
+
+        for (const VkSparseImageMemoryRequirements &current_sparse_image_memory_requirements : sparse_image_memory_requirements)
+        {
+            if (current_sparse_image_memory_requirements.formatProperties.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
+            {
+                py_resource->tile_width = current_sparse_image_memory_requirements.formatProperties.imageGranularity.width;
+                py_resource->tile_height = current_sparse_image_memory_requirements.formatProperties.imageGranularity.height;
+                py_resource->tile_depth = current_sparse_image_memory_requirements.formatProperties.imageGranularity.depth;
+                py_resource->tiles_x = static_cast<uint32_t>(ceil(static_cast<double>(width) / py_resource->tile_width));
+                py_resource->tiles_y = 1;
+                py_resource->tiles_z = 1;
+            }
+        }
+        heap_offset = 0;
+    }
+    else if (py_heap && py_heap != Py_None)
     {
         int ret = PyObject_IsInstance(py_heap, (PyObject *)&vulkan_Heap_Type);
         if (ret < 0)
@@ -1718,11 +1769,14 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
         heap_offset = 0;
     }
 
-    VkResult result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, heap_offset);
-    if (result != VK_SUCCESS)
+    if (!sparse)
     {
-        Py_DECREF(py_resource);
-        return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+        VkResult result = vkBindImageMemory(py_device->device, py_resource->image, py_resource->memory, heap_offset);
+        if (result != VK_SUCCESS)
+        {
+            Py_DECREF(py_resource);
+            return PyErr_Format(PyExc_MemoryError, "unable to bind vulkan Image memory");
+        }
     }
 
     VkImageViewCreateInfo image_view_create_info = {};
@@ -1734,7 +1788,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     image_view_create_info.subresourceRange.levelCount = 1;
     image_view_create_info.subresourceRange.layerCount = slices;
 
-    result = vkCreateImageView(
+    VkResult result = vkCreateImageView(
         py_device->device, &image_view_create_info, NULL, &py_resource->image_view);
     if (result != VK_SUCCESS)
     {
@@ -3180,9 +3234,9 @@ static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args
     if (x >= self->tiles_x || y >= self->tiles_y || z >= self->tiles_z)
     {
         return PyErr_Format(PyExc_ValueError,
-                     "Tile (%u, %u, %u) is out of bounds "
-                     "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
-                     x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
+                            "Tile (%u, %u, %u) is out of bounds "
+                            "(tiles_x: %u, tiles_y: %u, tiles_z: %u)",
+                            x, y, z, self->tiles_x, self->tiles_y, self->tiles_z);
     }
 
     VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -3222,8 +3276,8 @@ static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args
     }
 
     Py_XDECREF(self->py_heap);
-	self->py_heap = memory ? (vulkan_Heap *)py_heap : NULL;
-	Py_XINCREF(self->py_heap);
+    self->py_heap = memory ? (vulkan_Heap *)py_heap : NULL;
+    Py_XINCREF(self->py_heap);
 
     VkBindSparseInfo bind_sparse_info = {};
     bind_sparse_info.sType = VK_STRUCTURE_TYPE_BIND_SPARSE_INFO;

@@ -847,7 +847,8 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	PyObject *py_heap;
 	SIZE_T heap_offset;
 	UINT slices;
-	if (!PyArg_ParseTuple(args, "IiOKI", &width, &format, &py_heap, &heap_offset, &slices))
+	PyObject *py_sparse;
+	if (!PyArg_ParseTuple(args, "IiOKIO", &width, &format, &py_heap, &heap_offset, &slices, &py_sparse))
 		return NULL;
 
 	if (width == 0)
@@ -864,6 +865,8 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
+
+	const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
 
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
 	if (!py_device)
@@ -895,7 +898,11 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	HRESULT hr;
 	bool has_heap = false;
 
-	if (py_heap && py_heap != Py_None)
+	if (sparse)
+	{
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+	}
+	else if (py_heap && py_heap != Py_None)
 	{
 		int ret = PyObject_IsInstance(py_heap, (PyObject *)&d3d12_Heap_Type);
 		if (ret < 0)
@@ -958,6 +965,20 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	py_resource->slices = slices;
 	py_resource->heap_size = allocation_info.SizeInBytes;
 	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
+
+	if (sparse)
+	{
+		D3D12_TILE_SHAPE shape = {};
+		D3D12_SUBRESOURCE_TILING tiling = {};
+		UINT num_subresources = 1;
+		py_device->device->GetResourceTiling(resource, NULL, NULL, &shape, &num_subresources, 0, &tiling);
+		py_resource->tile_width = shape.WidthInTexels;
+		py_resource->tile_height = shape.HeightInTexels;
+		py_resource->tile_depth = shape.DepthInTexels;
+		py_resource->tiles_x = tiling.WidthInTiles;
+		py_resource->tiles_y = tiling.HeightInTiles;
+		py_resource->tiles_z = tiling.DepthInTiles;
+	}
 
 	if (has_heap)
 	{
@@ -1207,7 +1228,8 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	DXGI_FORMAT format;
 	PyObject *py_heap;
 	SIZE_T heap_offset;
-	if (!PyArg_ParseTuple(args, "IIIiOK", &width, &height, &depth, &format, &py_heap, &heap_offset))
+	PyObject *py_sparse;
+	if (!PyArg_ParseTuple(args, "IIIiOKO", &width, &height, &depth, &format, &py_heap, &heap_offset, &py_sparse))
 		return NULL;
 
 	if (width == 0)
@@ -1229,6 +1251,8 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid pixel format");
 	}
+
+	const bool sparse = py_sparse && PyObject_IsTrue(py_sparse);
 
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
 	if (!py_device)
@@ -1260,7 +1284,11 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	HRESULT hr;
 	bool has_heap = false;
 
-	if (py_heap && py_heap != Py_None)
+	if (sparse)
+	{
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+	}
+	else if (py_heap && py_heap != Py_None)
 	{
 		int ret = PyObject_IsInstance(py_heap, (PyObject *)&d3d12_Heap_Type);
 		if (ret < 0)
@@ -1323,6 +1351,20 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	py_resource->slices = 1;
 	py_resource->heap_size = allocation_info.SizeInBytes;
 	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
+
+	if (sparse)
+	{
+		D3D12_TILE_SHAPE shape = {};
+		D3D12_SUBRESOURCE_TILING tiling = {};
+		UINT num_subresources = 1;
+		py_device->device->GetResourceTiling(resource, NULL, NULL, &shape, &num_subresources, 0, &tiling);
+		py_resource->tile_width = shape.WidthInTexels;
+		py_resource->tile_height = shape.HeightInTexels;
+		py_resource->tile_depth = shape.DepthInTexels;
+		py_resource->tiles_x = tiling.WidthInTiles;
+		py_resource->tiles_y = tiling.HeightInTiles;
+		py_resource->tiles_z = tiling.DepthInTiles;
+	}
 
 	if (has_heap)
 	{
