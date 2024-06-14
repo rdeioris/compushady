@@ -82,7 +82,7 @@ typedef struct vulkan_Resource
     VkExtent3D image_extent;
     VkDescriptorBufferInfo descriptor_buffer_info;
     VkDescriptorImageInfo descriptor_image_info;
-    uint32_t row_pitch;
+    uint64_t row_pitch;
     VkFormat format;
     vulkan_Heap *py_heap;
     uint64_t heap_offset;
@@ -282,6 +282,7 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
     image_create_info.imageType = image_type;
     image_create_info.mipLevels = 1;
     image_create_info.arrayLayers = slices;
+    image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
@@ -1605,7 +1606,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     py_resource->descriptor_image_info.imageView = py_resource->image_view;
     py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     py_resource->row_pitch = width * vulkan_formats[format].second;
-    py_resource->size = py_resource->row_pitch * height * depth; // alway assume a packed configuration
+    py_resource->size = py_resource->row_pitch * height * depth; // always assume a packed configuration
     py_resource->heap_offset = heap_offset;
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
@@ -1754,7 +1755,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     py_resource->descriptor_image_info.imageView = py_resource->image_view;
     py_resource->descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     py_resource->row_pitch = width * vulkan_formats[format].second;
-    py_resource->size = py_resource->row_pitch; // alway assume a packed configuration
+    py_resource->size = py_resource->row_pitch; // always assume a packed configuration
     py_resource->heap_offset = heap_offset;
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
@@ -2732,7 +2733,7 @@ static PyMemberDef vulkan_Resource_members[] = {
      "resource height"},
     {"depth", T_UINT, offsetof(vulkan_Resource, image_extent) + offsetof(VkExtent3D, depth), 0,
      "resource depth"},
-    {"row_pitch", T_UINT, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
+    {"row_pitch", T_ULONGLONG, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
     {"slices", T_UINT, offsetof(vulkan_Resource, slices), 0, "resource number of slices"},
     {"heap_size", T_ULONGLONG, offsetof(vulkan_Resource, heap_size), 0, "resource heap size"},
     {"heap_type", T_INT, offsetof(vulkan_Resource, heap_type), 0, "resource heap type"},
