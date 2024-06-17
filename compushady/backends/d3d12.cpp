@@ -243,28 +243,7 @@ static d3d12_Device *d3d12_Device_get_device(d3d12_Device *self)
 	return self;
 }
 
-static PyTypeObject d3d12_Device_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Device", /* tp_name */
-	sizeof(d3d12_Device),											   /* tp_basicsize */
-	0,																   /* tp_itemsize */
-	(destructor)d3d12_Device_dealloc,								   /* tp_dealloc */
-	0,																   /* tp_print */
-	0,																   /* tp_getattr */
-	0,																   /* tp_setattr */
-	0,																   /* tp_reserved */
-	0,																   /* tp_repr */
-	0,																   /* tp_as_number */
-	0,																   /* tp_as_sequence */
-	0,																   /* tp_as_mapping */
-	0,																   /* tp_hash  */
-	0,																   /* tp_call */
-	0,																   /* tp_str */
-	0,																   /* tp_getattro */
-	0,																   /* tp_setattro */
-	0,																   /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,												   /* tp_flags */
-	"compushady d3d12 Device",										   /* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Device);
 
 static void d3d12_Heap_dealloc(d3d12_Heap *self)
 {
@@ -284,28 +263,7 @@ static PyMemberDef d3d12_Heap_members[] = {
 	{NULL} /* Sentinel */
 };
 
-static PyTypeObject d3d12_Heap_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Heap", /* tp_name */
-	sizeof(d3d12_Heap),												 /* tp_basicsize */
-	0,																 /* tp_itemsize */
-	(destructor)d3d12_Heap_dealloc,									 /* tp_dealloc */
-	0,																 /* tp_print */
-	0,																 /* tp_getattr */
-	0,																 /* tp_setattr */
-	0,																 /* tp_reserved */
-	0,																 /* tp_repr */
-	0,																 /* tp_as_number */
-	0,																 /* tp_as_sequence */
-	0,																 /* tp_as_mapping */
-	0,																 /* tp_hash  */
-	0,																 /* tp_call */
-	0,																 /* tp_str */
-	0,																 /* tp_getattro */
-	0,																 /* tp_setattro */
-	0,																 /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,												 /* tp_flags */
-	"compushady d3d12 Heap",										 /* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Heap);
 
 static void d3d12_Resource_dealloc(d3d12_Resource *self)
 {
@@ -321,28 +279,7 @@ static void d3d12_Resource_dealloc(d3d12_Resource *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject d3d12_Resource_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Resource", /* tp_name */
-	sizeof(d3d12_Resource),												 /* tp_basicsize */
-	0,																	 /* tp_itemsize */
-	(destructor)d3d12_Resource_dealloc,									 /* tp_dealloc */
-	0,																	 /* tp_print */
-	0,																	 /* tp_getattr */
-	0,																	 /* tp_setattr */
-	0,																	 /* tp_reserved */
-	0,																	 /* tp_repr */
-	0,																	 /* tp_as_number */
-	0,																	 /* tp_as_sequence */
-	0,																	 /* tp_as_mapping */
-	0,																	 /* tp_hash  */
-	0,																	 /* tp_call */
-	0,																	 /* tp_str */
-	0,																	 /* tp_getattro */
-	0,																	 /* tp_setattro */
-	0,																	 /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,													 /* tp_flags */
-	"compushady d3d12 Resource",										 /* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Resource);
 
 static void d3d12_Swapchain_dealloc(d3d12_Swapchain *self)
 {
@@ -356,28 +293,7 @@ static void d3d12_Swapchain_dealloc(d3d12_Swapchain *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject d3d12_Swapchain_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Swapchain", /* tp_name */
-	sizeof(d3d12_Swapchain),											  /* tp_basicsize */
-	0,																	  /* tp_itemsize */
-	(destructor)d3d12_Swapchain_dealloc,								  /* tp_dealloc */
-	0,																	  /* tp_print */
-	0,																	  /* tp_getattr */
-	0,																	  /* tp_setattr */
-	0,																	  /* tp_reserved */
-	0,																	  /* tp_repr */
-	0,																	  /* tp_as_number */
-	0,																	  /* tp_as_sequence */
-	0,																	  /* tp_as_mapping */
-	0,																	  /* tp_hash  */
-	0,																	  /* tp_call */
-	0,																	  /* tp_str */
-	0,																	  /* tp_getattro */
-	0,																	  /* tp_setattro */
-	0,																	  /* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,													  /* tp_flags */
-	"compushady d3d12 Swapchain",										  /* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Swapchain);
 
 static void d3d12_Compute_dealloc(d3d12_Compute *self)
 {
@@ -402,28 +318,7 @@ static void d3d12_Compute_dealloc(d3d12_Compute *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject d3d12_Compute_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Compute", /* tp_name */
-	sizeof(d3d12_Compute),												/* tp_basicsize */
-	0,																	/* tp_itemsize */
-	(destructor)d3d12_Compute_dealloc,									/* tp_dealloc */
-	0,																	/* tp_print */
-	0,																	/* tp_getattr */
-	0,																	/* tp_setattr */
-	0,																	/* tp_reserved */
-	0,																	/* tp_repr */
-	0,																	/* tp_as_number */
-	0,																	/* tp_as_sequence */
-	0,																	/* tp_as_mapping */
-	0,																	/* tp_hash  */
-	0,																	/* tp_call */
-	0,																	/* tp_str */
-	0,																	/* tp_getattro */
-	0,																	/* tp_setattro */
-	0,																	/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,													/* tp_flags */
-	"compushady d3d12 Compute",											/* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Compute);
 
 static void d3d12_Sampler_dealloc(d3d12_Sampler *self)
 {
@@ -432,28 +327,7 @@ static void d3d12_Sampler_dealloc(d3d12_Sampler *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject d3d12_Sampler_Type = {
-	PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.d3d12.Sampler", /* tp_name */
-	sizeof(d3d12_Sampler),												/* tp_basicsize */
-	0,																	/* tp_itemsize */
-	(destructor)d3d12_Sampler_dealloc,									/* tp_dealloc */
-	0,																	/* tp_print */
-	0,																	/* tp_getattr */
-	0,																	/* tp_setattr */
-	0,																	/* tp_reserved */
-	0,																	/* tp_repr */
-	0,																	/* tp_as_number */
-	0,																	/* tp_as_sequence */
-	0,																	/* tp_as_mapping */
-	0,																	/* tp_hash  */
-	0,																	/* tp_call */
-	0,																	/* tp_str */
-	0,																	/* tp_getattro */
-	0,																	/* tp_setattro */
-	0,																	/* tp_as_buffer */
-	Py_TPFLAGS_DEFAULT,													/* tp_flags */
-	"compushady d3d12 Sampler",											/* tp_doc */
-};
+COMPUSHADY_TYPE(d3d12, Sampler);
 
 static PyObject *d3d12_Swapchain_present(d3d12_Swapchain *self, PyObject *args)
 {

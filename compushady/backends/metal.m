@@ -97,28 +97,7 @@ static void metal_MTLFunction_dealloc(metal_MTLFunction* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_MTLFunction_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.MTLFunction", /* tp_name */
-    sizeof(metal_MTLFunction), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_MTLFunction_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal MTLFunction", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, MTLFunction);
 
 static void metal_Resource_dealloc(metal_Resource* self)
 {
@@ -139,28 +118,7 @@ static void metal_Resource_dealloc(metal_Resource* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_Resource_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Resource", /* tp_name */
-    sizeof(metal_Resource), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Resource_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Resource", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Resource);
 
 static void metal_Sampler_dealloc(metal_Sampler* self)
 {
@@ -174,28 +132,7 @@ static void metal_Sampler_dealloc(metal_Sampler* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_Sampler_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Sampler", /* tp_name */
-    sizeof(metal_Sampler), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Sampler_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Sampler", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Sampler);
 
 static void metal_Heap_dealloc(metal_Heap* self)
 {
@@ -214,28 +151,7 @@ static PyMemberDef metal_Heap_members[] = {
     { "heap_type", T_INT, offsetof(metal_Heap, heap_type), 0, "heap type" }, { NULL } /* Sentinel */
 };
 
-static PyTypeObject metal_Heap_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Heap", /* tp_name */
-    sizeof(metal_Heap), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Heap_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Heap", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Heap);
 
 static void metal_Device_dealloc(metal_Device* self)
 {
@@ -252,28 +168,7 @@ static void metal_Device_dealloc(metal_Device* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_Device_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Device", /* tp_name */
-    sizeof(metal_Device), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Device_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Device", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Device);
 
 static PyMemberDef metal_Device_members[] = {
     { "name", T_OBJECT_EX, offsetof(metal_Device, name), 0, "device name/description" },
@@ -314,28 +209,7 @@ static void metal_Compute_dealloc(metal_Compute* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_Compute_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Compute", /* tp_name */
-    sizeof(metal_Compute), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Compute_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Compute", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Compute);
 
 static void metal_Swapchain_dealloc(metal_Swapchain* self)
 {
@@ -347,28 +221,7 @@ static void metal_Swapchain_dealloc(metal_Swapchain* self)
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-static PyTypeObject metal_Swapchain_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.metal.Swapchain", /* tp_name */
-    sizeof(metal_Swapchain), /* tp_basicsize */
-    0, /* tp_itemsize */
-    (destructor)metal_Swapchain_dealloc, /* tp_dealloc */
-    0, /* tp_print */
-    0, /* tp_getattr */
-    0, /* tp_setattr */
-    0, /* tp_reserved */
-    0, /* tp_repr */
-    0, /* tp_as_number */
-    0, /* tp_as_sequence */
-    0, /* tp_as_mapping */
-    0, /* tp_hash  */
-    0, /* tp_call */
-    0, /* tp_str */
-    0, /* tp_getattro */
-    0, /* tp_setattro */
-    0, /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT, /* tp_flags */
-    "compushady metal Swapchain", /* tp_doc */
-};
+COMPUSHADY_TYPE(metal, Swapchain);
 
 static PyObject* compushady_create_metal_layer(metal_Device* self, PyObject* args)
 {

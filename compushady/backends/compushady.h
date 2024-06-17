@@ -67,6 +67,30 @@
 #define B8G8R8A8_UNORM 87
 #define B8G8R8A8_UNORM_SRGB 91
 
+#define COMPUSHADY_TYPE(backend, name)                                                                 \
+	static PyTypeObject backend##_##name##_Type = {                                                    \
+		PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends." #backend "." #name, /* tp_name */        \
+		sizeof(backend##_##name),												  /* tp_basicsize */   \
+		0,																		  /* tp_itemsize */    \
+		(destructor)backend##_##name##_dealloc,									  /* tp_dealloc */     \
+		0,																		  /* tp_print */       \
+		0,																		  /* tp_getattr */     \
+		0,																		  /* tp_setattr */     \
+		0,																		  /* tp_reserved */    \
+		0,																		  /* tp_repr */        \
+		0,																		  /* tp_as_number */   \
+		0,																		  /* tp_as_sequence */ \
+		0,																		  /* tp_as_mapping */  \
+		0,																		  /* tp_hash  */       \
+		0,																		  /* tp_call */        \
+		0,																		  /* tp_str */         \
+		0,																		  /* tp_getattro */    \
+		0,																		  /* tp_setattro */    \
+		0,																		  /* tp_as_buffer */   \
+		Py_TPFLAGS_DEFAULT,														  /* tp_flags */       \
+		"compushady " #backend " " #name,										  /* tp_doc */         \
+	}
+
 extern PyObject *Compushady_BufferError;
 extern PyObject *Compushady_Texture1DError;
 extern PyObject *Compushady_Texture2DError;

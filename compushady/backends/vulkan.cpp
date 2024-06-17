@@ -339,28 +339,7 @@ static void vulkan_Resource_dealloc(vulkan_Resource *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject vulkan_Resource_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Resource", /* tp_name */
-    sizeof(vulkan_Resource),                                              /* tp_basicsize */
-    0,                                                                    /* tp_itemsize */
-    (destructor)vulkan_Resource_dealloc,                                  /* tp_dealloc */
-    0,                                                                    /* tp_print */
-    0,                                                                    /* tp_getattr */
-    0,                                                                    /* tp_setattr */
-    0,                                                                    /* tp_reserved */
-    0,                                                                    /* tp_repr */
-    0,                                                                    /* tp_as_number */
-    0,                                                                    /* tp_as_sequence */
-    0,                                                                    /* tp_as_mapping */
-    0,                                                                    /* tp_hash  */
-    0,                                                                    /* tp_call */
-    0,                                                                    /* tp_str */
-    0,                                                                    /* tp_getattro */
-    0,                                                                    /* tp_setattro */
-    0,                                                                    /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                                   /* tp_flags */
-    "compushady vulkan Resource",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Resource);
 
 static void vulkan_Heap_dealloc(vulkan_Heap *self)
 {
@@ -380,28 +359,7 @@ static PyMemberDef vulkan_Heap_members[] = {
     {NULL} /* Sentinel */
 };
 
-static PyTypeObject vulkan_Heap_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Heap", /* tp_name */
-    sizeof(vulkan_Heap),                                              /* tp_basicsize */
-    0,                                                                /* tp_itemsize */
-    (destructor)vulkan_Heap_dealloc,                                  /* tp_dealloc */
-    0,                                                                /* tp_print */
-    0,                                                                /* tp_getattr */
-    0,                                                                /* tp_setattr */
-    0,                                                                /* tp_reserved */
-    0,                                                                /* tp_repr */
-    0,                                                                /* tp_as_number */
-    0,                                                                /* tp_as_sequence */
-    0,                                                                /* tp_as_mapping */
-    0,                                                                /* tp_hash  */
-    0,                                                                /* tp_call */
-    0,                                                                /* tp_str */
-    0,                                                                /* tp_getattro */
-    0,                                                                /* tp_setattro */
-    0,                                                                /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                               /* tp_flags */
-    "compushady vulkan Heap",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Heap);
 
 static void vulkan_Device_dealloc(vulkan_Device *self)
 {
@@ -423,28 +381,7 @@ static void vulkan_Device_dealloc(vulkan_Device *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject vulkan_Device_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Device", /* tp_name */
-    sizeof(vulkan_Device),                                              /* tp_basicsize */
-    0,                                                                  /* tp_itemsize */
-    (destructor)vulkan_Device_dealloc,                                  /* tp_dealloc */
-    0,                                                                  /* tp_print */
-    0,                                                                  /* tp_getattr */
-    0,                                                                  /* tp_setattr */
-    0,                                                                  /* tp_reserved */
-    0,                                                                  /* tp_repr */
-    0,                                                                  /* tp_as_number */
-    0,                                                                  /* tp_as_sequence */
-    0,                                                                  /* tp_as_mapping */
-    0,                                                                  /* tp_hash  */
-    0,                                                                  /* tp_call */
-    0,                                                                  /* tp_str */
-    0,                                                                  /* tp_getattro */
-    0,                                                                  /* tp_setattro */
-    0,                                                                  /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                                 /* tp_flags */
-    "compushady vulkan Device",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Device);
 
 static void vulkan_Compute_dealloc(vulkan_Compute *self)
 {
@@ -480,28 +417,7 @@ static void vulkan_Compute_dealloc(vulkan_Compute *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject vulkan_Compute_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Compute", /* tp_name */
-    sizeof(vulkan_Compute),                                              /* tp_basicsize */
-    0,                                                                   /* tp_itemsize */
-    (destructor)vulkan_Compute_dealloc,                                  /* tp_dealloc */
-    0,                                                                   /* tp_print */
-    0,                                                                   /* tp_getattr */
-    0,                                                                   /* tp_setattr */
-    0,                                                                   /* tp_reserved */
-    0,                                                                   /* tp_repr */
-    0,                                                                   /* tp_as_number */
-    0,                                                                   /* tp_as_sequence */
-    0,                                                                   /* tp_as_mapping */
-    0,                                                                   /* tp_hash  */
-    0,                                                                   /* tp_call */
-    0,                                                                   /* tp_str */
-    0,                                                                   /* tp_getattro */
-    0,                                                                   /* tp_setattro */
-    0,                                                                   /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
-    "compushady vulkan Compute",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Compute);
 
 static void vulkan_Swapchain_dealloc(vulkan_Swapchain *self)
 {
@@ -523,28 +439,7 @@ static void vulkan_Swapchain_dealloc(vulkan_Swapchain *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject vulkan_Swapchain_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Swapchain", /* tp_name */
-    sizeof(vulkan_Swapchain),                                              /* tp_basicsize */
-    0,                                                                     /* tp_itemsize */
-    (destructor)vulkan_Swapchain_dealloc,                                  /* tp_dealloc */
-    0,                                                                     /* tp_print */
-    0,                                                                     /* tp_getattr */
-    0,                                                                     /* tp_setattr */
-    0,                                                                     /* tp_reserved */
-    0,                                                                     /* tp_repr */
-    0,                                                                     /* tp_as_number */
-    0,                                                                     /* tp_as_sequence */
-    0,                                                                     /* tp_as_mapping */
-    0,                                                                     /* tp_hash  */
-    0,                                                                     /* tp_call */
-    0,                                                                     /* tp_str */
-    0,                                                                     /* tp_getattro */
-    0,                                                                     /* tp_setattro */
-    0,                                                                     /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                                    /* tp_flags */
-    "compushady vulkan Swapchain",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Swapchain);
 
 static void vulkan_Sampler_dealloc(vulkan_Sampler *self)
 {
@@ -558,28 +453,7 @@ static void vulkan_Sampler_dealloc(vulkan_Sampler *self)
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-static PyTypeObject vulkan_Sampler_Type = {
-    PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends.vulkan.Sampler", /* tp_name */
-    sizeof(vulkan_Sampler),                                              /* tp_basicsize */
-    0,                                                                   /* tp_itemsize */
-    (destructor)vulkan_Sampler_dealloc,                                  /* tp_dealloc */
-    0,                                                                   /* tp_print */
-    0,                                                                   /* tp_getattr */
-    0,                                                                   /* tp_setattr */
-    0,                                                                   /* tp_reserved */
-    0,                                                                   /* tp_repr */
-    0,                                                                   /* tp_as_number */
-    0,                                                                   /* tp_as_sequence */
-    0,                                                                   /* tp_as_mapping */
-    0,                                                                   /* tp_hash  */
-    0,                                                                   /* tp_call */
-    0,                                                                   /* tp_str */
-    0,                                                                   /* tp_getattro */
-    0,                                                                   /* tp_setattro */
-    0,                                                                   /* tp_as_buffer */
-    Py_TPFLAGS_DEFAULT,                                                  /* tp_flags */
-    "compushady vulkan Sampler",                                         /* tp_doc */
-};
+COMPUSHADY_TYPE(vulkan, Sampler);
 
 static PyMemberDef vulkan_Device_members[] = {
     {"name", T_OBJECT_EX, offsetof(vulkan_Device, name), 0, "device name/description"},
