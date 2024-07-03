@@ -470,6 +470,17 @@ static PyObject *d3d12_Device_create_swapchain(d3d12_Device *self, PyObject *arg
 		return d3d_generate_exception(PyExc_Exception, hr, "unable to create Swapchain");
 	}
 
+	if (format == DXGI_FORMAT_R10G10B10A2_UNORM)
+	{
+		hr = py_swapchain->swapchain->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020);
+		if (hr != S_OK)
+		{
+			factory->Release();
+			Py_DECREF(py_swapchain);
+			return d3d_generate_exception(PyExc_Exception, hr, "unable to set ColorSpace on Swapchain");
+		}
+	}
+
 	py_swapchain->swapchain->GetDesc1(&py_swapchain->desc);
 
 	py_swapchain->backbuffers.resize(py_swapchain->desc.BufferCount);

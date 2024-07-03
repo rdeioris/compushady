@@ -526,6 +526,12 @@ static PyObject *vulkan_instance_check()
             continue;
         }
 
+        if (!strcmp(extension_prop.extensionName, "VK_EXT_swapchain_colorspace"))
+        {
+            extensions.push_back("VK_EXT_swapchain_colorspace");
+            continue;
+        }
+
 #ifdef _WIN32
         if (!strcmp(extension_prop.extensionName, "VK_KHR_win32_surface"))
         {
@@ -2528,6 +2534,10 @@ static PyObject *vulkan_Device_create_swapchain(vulkan_Device *self, PyObject *a
     swapchain_create_info.minImageCount = num_buffers;
     swapchain_create_info.imageFormat = vulkan_formats[format].first;
     swapchain_create_info.imageColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+    if (format == R10G10B10A2_UNORM)
+    {
+        swapchain_create_info.imageColorSpace = VK_COLOR_SPACE_HDR10_ST2084_EXT;
+    }
     swapchain_create_info.imageExtent = surface_capabilities.currentExtent;
     if (width > 0)
         swapchain_create_info.imageExtent.width = width;
@@ -3716,6 +3726,7 @@ PyMODINIT_FUNC PyInit_vulkan(void)
     VK_FORMAT_FLOAT(R32G32, 2 * 4);
     VK_FORMAT(R32G32_UINT, 2 * 4);
     VK_FORMAT(R32G32_SINT, 2 * 4);
+    VK_FORMAT(R32G32_SINT, 2 * 4);
     VK_FORMAT(R8G8B8A8_UNORM, 4);
     VK_FORMAT_SRGB(R8G8B8A8, 4);
     VK_FORMAT(R8G8B8A8_UINT, 4);
@@ -3744,6 +3755,9 @@ PyMODINIT_FUNC PyInit_vulkan(void)
     VK_FORMAT(R8_SINT, 1);
     VK_FORMAT(B8G8R8A8_UNORM, 4);
     VK_FORMAT_SRGB(B8G8R8A8, 4);
+
+    vulkan_formats[R10G10B10A2_UNORM] = {VK_FORMAT_A2B10G10R10_UNORM_PACK32, 4};
+    vulkan_formats[R10G10B10A2_UINT] = {VK_FORMAT_A2B10G10R10_UINT_PACK32, 4};
 
     return m;
 }
