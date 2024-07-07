@@ -136,7 +136,7 @@ PyObject *compushady_backend_init(PyModuleDef *py_module_def,
 		return NULL;
 	}
 	Py_INCREF(compute_type);
-	if (PyModule_AddObject(m, "Compute", (PyObject *)compute_type) < 0)
+	if (PyModule_AddObject(m, "Pipeline", (PyObject *)compute_type) < 0)
 	{
 		Py_DECREF(compute_type);
 		Py_DECREF(swapchain_type);

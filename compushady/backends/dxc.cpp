@@ -152,7 +152,7 @@ static PyObject *dxc_compile(PyObject *self, PyObject *args)
 
 		if (!PyErr_Occurred())
 		{
-			dxc_generate_exception(hr, "Unable to compile HLSl shader");
+			dxc_generate_exception(hr, "Unable to compile HLSL shader");
 		}
 
 		blob_source->Release();

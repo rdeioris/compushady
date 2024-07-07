@@ -387,7 +387,18 @@ class Heap:
         return self.handle.heap_type
 
 
-class Compute:
+class Pipeline:
+    def bind_cbv(self, index, cbv):
+        self.handle.bind_cbv(index, cbv.handle)
+
+    def bind_srv(self, index, srv):
+        self.handle.bind_srv(index, srv.handle)
+
+    def bind_uav(self, index, uav):
+        self.handle.bind_uav(index, uav.handle)
+
+
+class Compute(Pipeline):
     def __init__(
         self,
         shader,
@@ -419,11 +430,46 @@ class Compute:
             indirect_buffer.handle, offset, push if push else b""
         )
 
-    def bind_cbv(self, index, cbv):
-        self.handle.bind_cbv(index, cbv.handle)
 
-    def bind_srv(self, index, srv):
-        self.handle.bind_srv(index, srv.handle)
+class Rasterizer(Pipeline):
+    def __init__(
+        self,
+        vs=b"",
+        ps=b"",
+        ms=b"",
+        rtv=[],
+        dsv=None,
+        cbv=[],
+        srv=[],
+        uav=[],
+        samplers=[],
+        push_size=0,
+        bindless=False,
+        max_bindless=64,
+        device=None,
+    ):
+        self.device = device if device else get_current_device()
+        self.handle = self.device.create_rasterizer(
+            vs,
+            ps,
+            ms,
+            rtv=[resource.handle for resource in rtv],
+            dsv=dsv.handle if dsv else None,
+            cbv=[resource.handle for resource in cbv],
+            srv=[resource.handle for resource in srv],
+            uav=[resource.handle for resource in uav],
+            samplers=[sampler.handle for sampler in samplers],
+            push_size=push_size,
+            bindless=max_bindless if bindless else 0,
+        )
 
-    def bind_uav(self, index, uav):
-        self.handle.bind_uav(index, uav.handle)
+    def draw(
+        self, num_vertices, num_instances=1, start_vertex=0, start_instance=0, push=None
+    ):
+        self.handle.draw(
+            num_vertices,
+            num_instances,
+            start_vertex,
+            start_instance,
+            push if push else b"",
+        )

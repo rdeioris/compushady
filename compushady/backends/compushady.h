@@ -69,6 +69,10 @@
 #define B8G8R8A8_UNORM 87
 #define B8G8R8A8_UNORM_SRGB 91
 
+#define D32_FLOAT 40
+#define D24_UNORM_S8_UINT 45
+#define D16_UNORM 55
+
 #define COMPUSHADY_TYPE(backend, name)                                                                 \
 	static PyTypeObject backend##_##name##_Type = {                                                    \
 		PyVarObject_HEAD_INIT(NULL, 0) "compushady.backends." #backend "." #name, /* tp_name */        \

@@ -287,6 +287,14 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     image_create_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+    if (format == VK_FORMAT_D32_SFLOAT || format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D16_UNORM)
+    {
+        image_create_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    }
+    else
+	{
+		image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	}
     image_create_info.format = format;
     if (sparse)
     {
@@ -1319,6 +1327,10 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     image_view_create_info.viewType = slices > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
     image_view_create_info.format = vulkan_formats[format].first;
     image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+    {
+        image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
     image_view_create_info.subresourceRange.levelCount = 1;
     image_view_create_info.subresourceRange.layerCount = slices;
 
@@ -1507,6 +1519,10 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     image_view_create_info.viewType = VK_IMAGE_VIEW_TYPE_3D;
     image_view_create_info.format = vulkan_formats[format].first;
     image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+    {
+        image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
     image_view_create_info.subresourceRange.levelCount = 1;
     image_view_create_info.subresourceRange.layerCount = 1;
 
@@ -1688,6 +1704,10 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     image_view_create_info.viewType = slices > 1 ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
     image_view_create_info.format = vulkan_formats[format].first;
     image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+    {
+        image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    }
     image_view_create_info.subresourceRange.levelCount = 1;
     image_view_create_info.subresourceRange.layerCount = slices;
 
@@ -3758,6 +3778,9 @@ PyMODINIT_FUNC PyInit_vulkan(void)
 
     vulkan_formats[R10G10B10A2_UNORM] = {VK_FORMAT_A2B10G10R10_UNORM_PACK32, 4};
     vulkan_formats[R10G10B10A2_UINT] = {VK_FORMAT_A2B10G10R10_UINT_PACK32, 4};
+    vulkan_formats[D32_FLOAT] = {VK_FORMAT_D32_SFLOAT, 4};
+    vulkan_formats[D24_UNORM_S8_UINT] = {VK_FORMAT_D32_SFLOAT_S8_UINT, 4};
+    vulkan_formats[D16_UNORM] = {VK_FORMAT_D16_UNORM, 2};
 
     return m;
 }

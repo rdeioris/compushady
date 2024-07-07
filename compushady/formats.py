@@ -43,6 +43,10 @@ R8_SINT = 64
 B8G8R8A8_UNORM = 87
 B8G8R8A8_UNORM_SRGB = 91
 
+D32_FLOAT = 40
+D24_UNORM_S8_UINT = 45
+D16_UNORM = 55
+
 _pixel_size = {}
 _pixel_size[R32G32B32A32_FLOAT] = 16
 _pixel_size[R32G32B32A32_UINT] = 16
@@ -89,6 +93,9 @@ _pixel_size[R8_SINT] = 1
 _pixel_size[B8G8R8A8_UNORM] = 4
 _pixel_size[B8G8R8A8_UNORM_SRGB] = 4
 
+_pixel_size[D32_FLOAT] = 4
+_pixel_size[D24_UNORM_S8_UINT] = 4
+_pixel_size[D16_UNORM] = 3
 
 def get_pixel_size(format):
     return _pixel_size[format]

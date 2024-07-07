@@ -78,7 +78,7 @@ typedef struct d3d12_Sampler
 	D3D12_SAMPLER_DESC sampler_desc;
 } d3d12_Sampler;
 
-typedef struct d3d12_Compute
+typedef struct d3d12_Pipeline
 {
 	PyObject_HEAD;
 	d3d12_Device *py_device;
@@ -95,7 +95,9 @@ typedef struct d3d12_Compute
 	PyObject *py_srv_list;
 	PyObject *py_uav_list;
 	PyObject *py_samplers_list;
-} d3d12_Compute;
+	ID3D12DescriptorHeap *dsv_descriptor_heap;
+	PyObject *py_dsv;
+} d3d12_Pipeline;
 
 static PyMemberDef d3d12_Device_members[] = {
 	{"name", T_OBJECT_EX, offsetof(d3d12_Device, name), 0, "device name/description"},
@@ -295,7 +297,7 @@ static void d3d12_Swapchain_dealloc(d3d12_Swapchain *self)
 
 COMPUSHADY_TYPE(d3d12, Swapchain);
 
-static void d3d12_Compute_dealloc(d3d12_Compute *self)
+static void d3d12_Pipeline_dealloc(d3d12_Pipeline *self)
 {
 	if (self->command_signature)
 		self->command_signature->Release();
@@ -315,10 +317,12 @@ static void d3d12_Compute_dealloc(d3d12_Compute *self)
 	Py_XDECREF(self->py_uav_list);
 	Py_XDECREF(self->py_samplers_list);
 
+	Py_XDECREF(self->py_dsv);
+
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-COMPUSHADY_TYPE(d3d12, Compute);
+COMPUSHADY_TYPE(d3d12, Pipeline);
 
 static void d3d12_Sampler_dealloc(d3d12_Sampler *self)
 {
@@ -762,6 +766,9 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	D3D12_HEAP_PROPERTIES heap_properties = {};
 	heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
+	D3D12_CLEAR_VALUE clear_value = {};
+	D3D12_CLEAR_VALUE *clear_value_ptr = NULL;
+
 	D3D12_RESOURCE_DESC1 resource_desc = {};
 	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE1D;
 	resource_desc.Width = width;
@@ -772,6 +779,31 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+	if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+	{
+		if (format == D32_FLOAT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		}
+		else if (format == D24_UNORM_S8_UINT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+		}
+		else if (format == D16_UNORM)
+		{
+			resource_desc.Format = DXGI_FORMAT_R16_TYPELESS;
+		}
+		resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		clear_value.Format = format;
+		clear_value.DepthStencil.Depth = 1;
+		clear_value.DepthStencil.Stencil = 0;
+		clear_value_ptr = &clear_value;
+	}
+	else
+	{
+		resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	}
 
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
@@ -785,7 +817,7 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 
 	if (sparse)
 	{
-		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 	else if (py_heap && py_heap != Py_None)
 	{
@@ -818,12 +850,12 @@ static PyObject *d3d12_Device_create_texture1d(d3d12_Device *self, PyObject *arg
 								"(required %llu)",
 								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
-		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
 	}
 	else
 	{
-		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 
 	if (hr != S_OK)
@@ -993,6 +1025,9 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	D3D12_HEAP_PROPERTIES heap_properties = {};
 	heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
+	D3D12_CLEAR_VALUE clear_value = {};
+	D3D12_CLEAR_VALUE *clear_value_ptr = NULL;
+
 	D3D12_RESOURCE_DESC1 resource_desc = {};
 	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 	resource_desc.Width = width;
@@ -1003,6 +1038,31 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	resource_desc.Layout = sparse ? D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE : D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+	if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+	{
+		if (format == D32_FLOAT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		}
+		else if (format == D24_UNORM_S8_UINT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+		}
+		else if (format == D16_UNORM)
+		{
+			resource_desc.Format = DXGI_FORMAT_R16_TYPELESS;
+		}
+		resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		clear_value.Format = format;
+		clear_value.DepthStencil.Depth = 1;
+		clear_value.DepthStencil.Stencil = 0;
+		clear_value_ptr = &clear_value;
+	}
+	else
+	{
+		resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	}
 
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
@@ -1016,7 +1076,7 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 
 	if (sparse)
 	{
-		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 	else if (py_heap && py_heap != Py_None)
 	{
@@ -1049,12 +1109,12 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 								"(required %llu)",
 								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
-		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
 	}
 	else
 	{
-		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 
 	if (hr != S_OK)
@@ -1148,6 +1208,9 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	D3D12_HEAP_PROPERTIES heap_properties = {};
 	heap_properties.Type = D3D12_HEAP_TYPE_DEFAULT;
 
+	D3D12_CLEAR_VALUE clear_value = {};
+	D3D12_CLEAR_VALUE *clear_value_ptr = NULL;
+
 	D3D12_RESOURCE_DESC1 resource_desc = {};
 	resource_desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE3D;
 	resource_desc.Width = width;
@@ -1158,6 +1221,31 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 	resource_desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
 	resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+	if (format == D32_FLOAT || format == D24_UNORM_S8_UINT || format == D16_UNORM)
+	{
+		if (format == D32_FLOAT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R32_TYPELESS;
+		}
+		else if (format == D24_UNORM_S8_UINT)
+		{
+			resource_desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+		}
+		else if (format == D16_UNORM)
+		{
+			resource_desc.Format = DXGI_FORMAT_R16_TYPELESS;
+		}
+		resource_desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		clear_value.Format = format;
+		clear_value.DepthStencil.Depth = 1;
+		clear_value.DepthStencil.Stencil = 0;
+		clear_value_ptr = &clear_value;
+	}
+	else
+	{
+		resource_desc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	}
 
 	UINT64 texture_size = 0;
 	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
@@ -1171,7 +1259,7 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 
 	if (sparse)
 	{
-		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateReservedResource((D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 	else if (py_heap && py_heap != Py_None)
 	{
@@ -1204,12 +1292,12 @@ static PyObject *d3d12_Device_create_texture3d(d3d12_Device *self, PyObject *arg
 								"(required %llu)",
 								heap_offset, py_d3d12_heap->size, allocation_info.SizeInBytes);
 		}
-		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreatePlacedResource(py_d3d12_heap->heap, heap_offset, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 		has_heap = true;
 	}
 	else
 	{
-		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, NULL, __uuidof(ID3D12Resource1), (void **)&resource);
+		hr = py_device->device->CreateCommittedResource(&heap_properties, D3D12_HEAP_FLAG_NONE, (D3D12_RESOURCE_DESC *)&resource_desc, state, clear_value_ptr, __uuidof(ID3D12Resource1), (void **)&resource);
 	}
 
 	if (hr != S_OK)
@@ -1264,6 +1352,12 @@ static PyObject *d3d12_Device_get_debug_messages(d3d12_Device *self, PyObject *a
 {
 	PyObject *py_list = PyList_New(0);
 
+	// no device -> no debug messages
+	if (!self->device)
+	{
+		return py_list;
+	}
+
 	ID3D12InfoQueue *queue;
 	HRESULT hr = self->device->QueryInterface<ID3D12InfoQueue>(&queue);
 	if (hr == S_OK)
@@ -1286,21 +1380,8 @@ static PyObject *d3d12_Device_get_debug_messages(d3d12_Device *self, PyObject *a
 	return py_list;
 }
 
-static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args, PyObject *kwds)
+static d3d12_Pipeline *compushady_d3d12_setup_pipeline(d3d12_Device *self, PyObject *py_cbv, PyObject *py_srv, PyObject *py_uav, PyObject *py_samplers, const UINT push_size, const UINT bindless)
 {
-	const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
-	Py_buffer view;
-	PyObject *py_cbv = NULL;
-	PyObject *py_srv = NULL;
-	PyObject *py_uav = NULL;
-	PyObject *py_samplers = NULL;
-	UINT push_size = 0;
-	UINT bindless = 0;
-
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*|OOOOII", (char **)kwlist,
-									 &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
-		return NULL;
-
 	d3d12_Device *py_device = d3d12_Device_get_device(self);
 	if (!py_device)
 		return NULL;
@@ -1312,7 +1393,6 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 
 	if (!compushady_check_descriptors(&d3d12_Resource_Type, py_cbv, cbv, py_srv, srv, py_uav, uav, &d3d12_Sampler_Type, py_samplers, samplers))
 	{
-		PyBuffer_Release(&view);
 		return NULL;
 	}
 
@@ -1352,21 +1432,19 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 	{
 		if (cbv.size() > bindless)
 		{
-			PyBuffer_Release(&view);
-			return PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)cbv.size(), bindless);
+			return (d3d12_Pipeline *)PyErr_Format(PyExc_ValueError, "Invalid number of initial CBVs (%u) for bindless Pipeline (max: %u)", (UINT)cbv.size(), bindless);
 		}
 
 		if (srv.size() > bindless)
 		{
-			PyBuffer_Release(&view);
-			return PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)srv.size(), bindless);
+			return (d3d12_Pipeline *)PyErr_Format(PyExc_ValueError, "Invalid number of initial SRVs (%u) for bindless Pipeline (max: %u)", (UINT)srv.size(), bindless);
 		}
 
 		if (uav.size() > bindless)
 		{
-			PyBuffer_Release(&view);
-			return PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Compute Pipeline (max: %u)", (UINT)uav.size(), bindless);
+			return (d3d12_Pipeline *)PyErr_Format(PyExc_ValueError, "Invalid number of initial UAVs (%u) for bindless Pipeline (max: %u)", (UINT)uav.size(), bindless);
 		}
+
 		D3D12_DESCRIPTOR_RANGE1 range = {};
 		range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
 		range.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DESCRIPTORS_VOLATILE;
@@ -1432,30 +1510,27 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 	HRESULT hr = D3D12SerializeVersionedRootSignature(&versioned_root_signature, &serialized_root_signature, NULL);
 	if (hr != S_OK)
 	{
-		PyBuffer_Release(&view);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to serialize Versioned Root Signature");
+		return (d3d12_Pipeline *)d3d_generate_exception(PyExc_Exception, hr, "Unable to serialize Versioned Root Signature");
 	}
 
-	d3d12_Compute *py_compute = (d3d12_Compute *)PyObject_New(d3d12_Compute, &d3d12_Compute_Type);
-	if (!py_compute)
+	d3d12_Pipeline *py_pipeline = (d3d12_Pipeline *)PyObject_New(d3d12_Pipeline, &d3d12_Pipeline_Type);
+	if (!py_pipeline)
 	{
-		PyBuffer_Release(&view);
-		return PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Compute");
+		return (d3d12_Pipeline *)PyErr_Format(PyExc_MemoryError, "unable to allocate d3d12 Compute Pipeline");
 	}
-	COMPUSHADY_CLEAR(py_compute);
-	py_compute->py_device = py_device;
-	Py_INCREF(py_compute->py_device);
+	COMPUSHADY_CLEAR(py_pipeline);
+	py_pipeline->py_device = py_device;
+	Py_INCREF(py_pipeline->py_device);
 
-	py_compute->push_constant_slot = push_constant_slot;
-	py_compute->push_constant_values = push_constant_values;
+	py_pipeline->push_constant_slot = push_constant_slot;
+	py_pipeline->push_constant_values = push_constant_values;
 
-	hr = py_device->device->CreateRootSignature(0, serialized_root_signature->GetBufferPointer(), serialized_root_signature->GetBufferSize(), __uuidof(ID3D12RootSignature), (void **)&py_compute->root_signature);
+	hr = py_device->device->CreateRootSignature(0, serialized_root_signature->GetBufferPointer(), serialized_root_signature->GetBufferSize(), __uuidof(ID3D12RootSignature), (void **)&py_pipeline->root_signature);
 	serialized_root_signature->Release();
 	if (hr != S_OK)
 	{
-		PyBuffer_Release(&view);
-		Py_DECREF(py_compute);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Root Signature");
+		Py_DECREF(py_pipeline);
+		return (d3d12_Pipeline *)d3d_generate_exception(PyExc_Exception, hr, "Unable to create Root Signature");
 	}
 
 	const UINT num_descriptors = (bindless > 0) ? (bindless * 3) : ((UINT)(cbv.size() + srv.size() + uav.size()));
@@ -1466,18 +1541,17 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		descriptor_heap_desc.NumDescriptors = num_descriptors;
 
-		hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void **)&py_compute->descriptor_heaps[0]);
+		hr = py_device->device->CreateDescriptorHeap(&descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void **)&py_pipeline->descriptor_heaps[0]);
 		if (hr != S_OK)
 		{
-			PyBuffer_Release(&view);
-			Py_DECREF(py_compute);
-			return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Descriptor Heap");
+			Py_DECREF(py_pipeline);
+			return (d3d12_Pipeline *)d3d_generate_exception(PyExc_Exception, hr, "Unable to create Descriptor Heap");
 		}
 
-		py_compute->bind_increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-		py_compute->bind_start = py_compute->descriptor_heaps[0]->GetCPUDescriptorHandleForHeapStart();
+		py_pipeline->bind_increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+		py_pipeline->bind_start = py_pipeline->descriptor_heaps[0]->GetCPUDescriptorHandleForHeapStart();
 
-		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_compute->bind_start;
+		D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle = py_pipeline->bind_start;
 
 		for (d3d12_Resource *resource : cbv)
 		{
@@ -1485,12 +1559,12 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			cbv_desc.BufferLocation = resource->resource->GetGPUVirtualAddress();
 			cbv_desc.SizeInBytes = (UINT)COMPUSHADY_ALIGN(resource->size, D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT);
 			py_device->device->CreateConstantBufferView(&cbv_desc, cpu_handle);
-			cpu_handle.ptr += py_compute->bind_increment;
+			cpu_handle.ptr += py_pipeline->bind_increment;
 		}
 
 		if (bindless > 0)
 		{
-			cpu_handle.ptr = py_compute->bind_start.ptr + (bindless * py_compute->bind_increment);
+			cpu_handle.ptr = py_pipeline->bind_start.ptr + (bindless * py_pipeline->bind_increment);
 		}
 
 		for (d3d12_Resource *resource : srv)
@@ -1509,16 +1583,62 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 				}
 				py_device->device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
 			}
+			else if ((resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D || resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) && (resource->format == D32_FLOAT || resource->format == D24_UNORM_S8_UINT || resource->format == D16_UNORM))
+			{
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+				if (resource->slices > 1)
+				{
+					if (resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+					{
+						srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1DARRAY;
+						srv_desc.Texture1DArray.ArraySize = resource->slices;
+						srv_desc.Texture1DArray.MipLevels = 1;
+					}
+					else if (resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+					{
+						srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2DARRAY;
+						srv_desc.Texture2DArray.ArraySize = resource->slices;
+						srv_desc.Texture2DArray.MipLevels = 1;
+					}
+				}
+				else
+				{
+					if (resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+					{
+						srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE1D;
+						srv_desc.Texture1D.MipLevels = 1;
+					}
+					else if (resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+					{
+						srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+						srv_desc.Texture2D.MipLevels = 1;
+					}
+				}
+				srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				if (resource->format == D32_FLOAT)
+				{
+					srv_desc.Format = DXGI_FORMAT_R32_FLOAT;
+				}
+				else if (resource->format == D24_UNORM_S8_UINT)
+				{
+					srv_desc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+				}
+				else if (resource->format == D16_UNORM)
+				{
+					srv_desc.Format = DXGI_FORMAT_R16_UNORM;
+				}
+				py_device->device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
+			}
 			else
 			{
 				py_device->device->CreateShaderResourceView(resource->resource, NULL, cpu_handle);
 			}
-			cpu_handle.ptr += py_compute->bind_increment;
+			cpu_handle.ptr += py_pipeline->bind_increment;
 		}
 
 		if (bindless > 0)
 		{
-			cpu_handle.ptr = py_compute->bind_start.ptr + (bindless * py_compute->bind_increment * 2);
+			cpu_handle.ptr = py_pipeline->bind_start.ptr + (bindless * py_pipeline->bind_increment * 2);
 		}
 
 		for (d3d12_Resource *resource : uav)
@@ -1540,7 +1660,7 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 			{
 				py_device->device->CreateUnorderedAccessView(resource->resource, NULL, NULL, cpu_handle);
 			}
-			cpu_handle.ptr += py_compute->bind_increment;
+			cpu_handle.ptr += py_pipeline->bind_increment;
 		}
 	}
 
@@ -1551,18 +1671,17 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		sampler_descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 		sampler_descriptor_heap_desc.NumDescriptors = (UINT)samplers.size();
 
-		const UINT sampler_descriptor_index = py_compute->descriptor_heaps[0] ? 1 : 0;
+		const UINT sampler_descriptor_index = py_pipeline->descriptor_heaps[0] ? 1 : 0;
 
-		hr = py_device->device->CreateDescriptorHeap(&sampler_descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void **)&py_compute->descriptor_heaps[sampler_descriptor_index]);
+		hr = py_device->device->CreateDescriptorHeap(&sampler_descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), (void **)&py_pipeline->descriptor_heaps[sampler_descriptor_index]);
 		if (hr != S_OK)
 		{
-			PyBuffer_Release(&view);
-			Py_DECREF(py_compute);
-			return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Sampler Descriptor Heap");
+			Py_DECREF(py_pipeline);
+			return (d3d12_Pipeline *)d3d_generate_exception(PyExc_Exception, hr, "Unable to create Sampler Descriptor Heap");
 		}
 
 		UINT sampler_increment = py_device->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER);
-		D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu_handle = py_compute->descriptor_heaps[sampler_descriptor_index]->GetCPUDescriptorHandleForHeapStart();
+		D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu_handle = py_pipeline->descriptor_heaps[sampler_descriptor_index]->GetCPUDescriptorHandleForHeapStart();
 
 		for (d3d12_Sampler *sampler : samplers)
 		{
@@ -1571,56 +1690,28 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		}
 	}
 
-	D3D12_COMPUTE_PIPELINE_STATE_DESC compute_pipeline_desc = {};
-	compute_pipeline_desc.pRootSignature = py_compute->root_signature;
-	compute_pipeline_desc.CS.pShaderBytecode = view.buf;
-	compute_pipeline_desc.CS.BytecodeLength = view.len;
-
-	hr = py_device->device->CreateComputePipelineState(&compute_pipeline_desc, __uuidof(ID3D12PipelineState), (void **)&py_compute->pipeline);
-	if (hr != S_OK)
-	{
-		PyBuffer_Release(&view);
-		Py_DECREF(py_compute);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Pipeline State");
-	}
-
-	PyBuffer_Release(&view);
-
-	D3D12_INDIRECT_ARGUMENT_DESC indirect_argument_desc = {};
-	indirect_argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
-	D3D12_COMMAND_SIGNATURE_DESC command_signature_desc = {};
-	command_signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
-	command_signature_desc.NumArgumentDescs = 1;
-	command_signature_desc.pArgumentDescs = &indirect_argument_desc;
-	hr = py_device->device->CreateCommandSignature(&command_signature_desc, NULL, __uuidof(ID3D12CommandSignature), (void **)&py_compute->command_signature);
-	if (hr != S_OK)
-	{
-		Py_DECREF(py_compute);
-		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Command Signature");
-	}
-
-	py_compute->bindless = bindless;
+	py_pipeline->bindless = bindless;
 
 	const size_t num_cbv = (bindless > 0) ? bindless : cbv.size();
 	const size_t num_srv = (bindless > 0) ? bindless : srv.size();
 	const size_t num_uav = (bindless > 0) ? bindless : uav.size();
 
-	py_compute->py_cbv_list = PyList_New(num_cbv);
-	py_compute->py_srv_list = PyList_New(num_srv);
-	py_compute->py_uav_list = PyList_New(num_uav);
-	py_compute->py_samplers_list = PyList_New(0);
+	py_pipeline->py_cbv_list = PyList_New(num_cbv);
+	py_pipeline->py_srv_list = PyList_New(num_srv);
+	py_pipeline->py_uav_list = PyList_New(num_uav);
+	py_pipeline->py_samplers_list = PyList_New(0);
 
 	for (size_t i = 0; i < num_cbv; i++)
 	{
 		if (i < cbv.size())
 		{
 			Py_INCREF((PyObject *)cbv[i]);
-			PyList_SetItem(py_compute->py_cbv_list, i, (PyObject *)cbv[i]);
+			PyList_SetItem(py_pipeline->py_cbv_list, i, (PyObject *)cbv[i]);
 		}
 		else
 		{
 			Py_INCREF(Py_None);
-			PyList_SetItem(py_compute->py_cbv_list, i, Py_None);
+			PyList_SetItem(py_pipeline->py_cbv_list, i, Py_None);
 		}
 	}
 
@@ -1629,12 +1720,12 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		if (i < srv.size())
 		{
 			Py_INCREF((PyObject *)srv[i]);
-			PyList_SetItem(py_compute->py_srv_list, i, (PyObject *)srv[i]);
+			PyList_SetItem(py_pipeline->py_srv_list, i, (PyObject *)srv[i]);
 		}
 		else
 		{
 			Py_INCREF(Py_None);
-			PyList_SetItem(py_compute->py_srv_list, i, Py_None);
+			PyList_SetItem(py_pipeline->py_srv_list, i, Py_None);
 		}
 	}
 
@@ -1643,21 +1734,289 @@ static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args,
 		if (i < uav.size())
 		{
 			Py_INCREF((PyObject *)uav[i]);
-			PyList_SetItem(py_compute->py_uav_list, i, (PyObject *)uav[i]);
+			PyList_SetItem(py_pipeline->py_uav_list, i, (PyObject *)uav[i]);
 		}
 		else
 		{
 			Py_INCREF(Py_None);
-			PyList_SetItem(py_compute->py_uav_list, i, Py_None);
+			PyList_SetItem(py_pipeline->py_uav_list, i, Py_None);
 		}
 	}
 
 	for (d3d12_Sampler *py_sampler : samplers)
 	{
-		PyList_Append(py_compute->py_samplers_list, (PyObject *)py_sampler);
+		PyList_Append(py_pipeline->py_samplers_list, (PyObject *)py_sampler);
+	}
+
+	return py_pipeline;
+}
+
+static PyObject *d3d12_Device_create_compute(d3d12_Device *self, PyObject *args, PyObject *kwds)
+{
+	const char *kwlist[] = {"shader", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
+	Py_buffer view;
+	PyObject *py_cbv = NULL;
+	PyObject *py_srv = NULL;
+	PyObject *py_uav = NULL;
+	PyObject *py_samplers = NULL;
+	UINT push_size = 0;
+	UINT bindless = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*OOOOII:create_compute", (char **)kwlist,
+									 &view, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
+		return NULL;
+
+	d3d12_Pipeline *py_compute = compushady_d3d12_setup_pipeline(self, py_cbv, py_srv, py_uav, py_samplers, push_size, bindless);
+	if (!py_compute)
+	{
+		PyBuffer_Release(&view);
+		return NULL;
+	}
+
+	D3D12_COMPUTE_PIPELINE_STATE_DESC compute_pipeline_desc = {};
+	compute_pipeline_desc.pRootSignature = py_compute->root_signature;
+	compute_pipeline_desc.CS.pShaderBytecode = view.buf;
+	compute_pipeline_desc.CS.BytecodeLength = view.len;
+
+	HRESULT hr = py_compute->py_device->device->CreateComputePipelineState(&compute_pipeline_desc, __uuidof(ID3D12PipelineState), (void **)&py_compute->pipeline);
+	PyBuffer_Release(&view);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_compute);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Pipeline State");
+	}
+
+	D3D12_INDIRECT_ARGUMENT_DESC indirect_argument_desc = {};
+	indirect_argument_desc.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH;
+	D3D12_COMMAND_SIGNATURE_DESC command_signature_desc = {};
+	command_signature_desc.ByteStride = sizeof(D3D12_DISPATCH_ARGUMENTS);
+	command_signature_desc.NumArgumentDescs = 1;
+	command_signature_desc.pArgumentDescs = &indirect_argument_desc;
+	hr = py_compute->py_device->device->CreateCommandSignature(&command_signature_desc, NULL, __uuidof(ID3D12CommandSignature), (void **)&py_compute->command_signature);
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_compute);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Compute Command Signature");
 	}
 
 	return (PyObject *)py_compute;
+}
+
+template <typename T>
+void compushady_d3d12_append_subobject_to_stream(std::vector<char> &stream, const D3D12_PIPELINE_STATE_SUBOBJECT_TYPE subobject_type, const T &subobject)
+{
+	const size_t ptr_size = sizeof(void *);
+
+	if (stream.size() % ptr_size != 0)
+	{
+		stream.resize(stream.size() + (ptr_size - (stream.size() % ptr_size)));
+	}
+
+	std::vector<char> subobject_type_data(reinterpret_cast<const char *>(&subobject_type), reinterpret_cast<const char *>(&subobject_type) + sizeof(D3D12_PIPELINE_STATE_SUBOBJECT_TYPE));
+	stream.insert(stream.end(), subobject_type_data.begin(), subobject_type_data.end());
+
+	if (stream.size() % alignof(T) != 0)
+	{
+		stream.resize(stream.size() + (alignof(T) - (stream.size() % alignof(T))));
+	}
+
+	std::vector<char> subobject_data(reinterpret_cast<const char *>(&subobject), reinterpret_cast<const char *>(&subobject) + sizeof(T));
+	stream.insert(stream.end(), subobject_data.begin(), subobject_data.end());
+}
+
+static PyObject *d3d12_Device_create_rasterizer(d3d12_Device *self, PyObject *args, PyObject *kwds)
+{
+	const char *kwlist[] = {"vs", "ps", "ms", "rtv", "dsv", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
+	Py_buffer vs_view;
+	Py_buffer ps_view;
+	Py_buffer ms_view;
+	PyObject *py_cbv = NULL;
+	PyObject *py_srv = NULL;
+	PyObject *py_uav = NULL;
+	PyObject *py_rtv = NULL;
+	PyObject *py_dsv = NULL;
+	PyObject *py_samplers = NULL;
+	UINT push_size = 0;
+	UINT bindless = 0;
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*y*y*OOOOOOII:create_rasterizer", (char **)kwlist,
+									 &vs_view, &ps_view, &ms_view, &py_rtv, &py_dsv, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
+		return NULL;
+
+	d3d12_Pipeline *py_rasterizer = compushady_d3d12_setup_pipeline(self, py_cbv, py_srv, py_uav, py_samplers, push_size, bindless);
+	if (!py_rasterizer)
+	{
+		if (vs_view.buf)
+			PyBuffer_Release(&vs_view);
+		if (ps_view.buf)
+			PyBuffer_Release(&ps_view);
+		if (ms_view.buf)
+			PyBuffer_Release(&ms_view);
+		return NULL;
+	}
+
+	if (py_dsv)
+	{
+		const int ret = PyObject_IsInstance(py_dsv, (PyObject *)&d3d12_Resource_Type);
+		if (ret < 0)
+		{
+			if (vs_view.buf)
+				PyBuffer_Release(&vs_view);
+			if (ps_view.buf)
+				PyBuffer_Release(&ps_view);
+			if (ms_view.buf)
+				PyBuffer_Release(&ms_view);
+			Py_DECREF(py_rasterizer);
+			return NULL;
+		}
+		else if (ret == 0)
+		{
+			if (vs_view.buf)
+				PyBuffer_Release(&vs_view);
+			if (ps_view.buf)
+				PyBuffer_Release(&ps_view);
+			if (ms_view.buf)
+				PyBuffer_Release(&ms_view);
+			Py_DECREF(py_rasterizer);
+			return PyErr_Format(PyExc_ValueError, "Expected a Resource object as DSV");
+		}
+
+		py_rasterizer->py_dsv = py_dsv;
+
+		D3D12_DESCRIPTOR_HEAP_DESC dsv_descriptor_heap_desc = {};
+		dsv_descriptor_heap_desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+		dsv_descriptor_heap_desc.NumDescriptors = 1;
+		dsv_descriptor_heap_desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+		HRESULT hr = py_rasterizer->py_device->device->CreateDescriptorHeap(&dsv_descriptor_heap_desc, __uuidof(ID3D12DescriptorHeap), reinterpret_cast<void **>(&py_rasterizer->dsv_descriptor_heap));
+		if (hr != S_OK)
+		{
+			if (vs_view.buf)
+				PyBuffer_Release(&vs_view);
+			if (ps_view.buf)
+				PyBuffer_Release(&ps_view);
+			if (ms_view.buf)
+				PyBuffer_Release(&ms_view);
+			Py_DECREF(py_rasterizer);
+			return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Heap Descriptor for DSV");
+		}
+
+		d3d12_Resource *dsv = (d3d12_Resource *)py_rasterizer->py_dsv;
+		D3D12_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+		if (dsv->slices > 1)
+		{
+			if (dsv->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+			{
+				dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE1DARRAY;
+				dsv_desc.Texture1DArray.ArraySize = dsv->slices;
+			}
+			else if (dsv->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+			{
+				dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2DARRAY;
+				dsv_desc.Texture2DArray.ArraySize = dsv->slices;
+			}
+		}
+		else
+		{
+			if (dsv->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D)
+			{
+				dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE1D;
+			}
+			else if (dsv->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D)
+			{
+				dsv_desc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+			}
+		}
+		dsv_desc.Format = dsv->format;
+		py_rasterizer->py_device->device->CreateDepthStencilView(dsv->resource, &dsv_desc, py_rasterizer->dsv_descriptor_heap->GetCPUDescriptorHandleForHeapStart());
+	}
+
+	ID3D12Device2 *device2;
+	HRESULT hr = py_rasterizer->py_device->device->QueryInterface<ID3D12Device2>(&device2);
+	if (hr != S_OK)
+	{
+		if (vs_view.buf)
+			PyBuffer_Release(&vs_view);
+		if (ps_view.buf)
+			PyBuffer_Release(&ps_view);
+		if (ms_view.buf)
+			PyBuffer_Release(&ms_view);
+		Py_DECREF(py_rasterizer);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Rasterizer Pipeline State");
+	}
+
+	std::vector<char> pipeline_stream;
+	compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_ROOT_SIGNATURE, py_rasterizer->root_signature);
+
+	if (vs_view.buf && vs_view.len > 0)
+	{
+		D3D12_SHADER_BYTECODE vs;
+		vs.pShaderBytecode = vs_view.buf;
+		vs.BytecodeLength = vs_view.len;
+		compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_VS, vs);
+	}
+
+	if (ps_view.buf && ps_view.len > 0)
+	{
+		D3D12_SHADER_BYTECODE ps;
+		ps.pShaderBytecode = ps_view.buf;
+		ps.BytecodeLength = ps_view.len;
+		compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PS, ps);
+	}
+
+	if (ms_view.buf && ms_view.len > 0)
+	{
+		D3D12_SHADER_BYTECODE ms;
+		ms.pShaderBytecode = ms_view.buf;
+		ms.BytecodeLength = ms_view.len;
+		compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_MS, ms);
+	}
+
+	// topology
+	compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_PRIMITIVE_TOPOLOGY, D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE);
+
+#if 0
+	// render target formats
+	D3D12_RT_FORMAT_ARRAY rts = {};
+	rts.NumRenderTargets = 2;
+	rts.RTFormats[0] = DXGI_FORMAT_B8G8R8A8_UNORM;
+	rts.RTFormats[1] = DXGI_FORMAT_B8G8R8A8_UNORM;
+	compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RENDER_TARGET_FORMATS, rts);
+#endif
+
+	if (py_rasterizer->py_dsv)
+	{
+		d3d12_Resource *py_resource_dsv = (d3d12_Resource *)py_rasterizer->py_dsv;
+		compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_DEPTH_STENCIL_FORMAT, py_resource_dsv->format);
+	}
+
+	D3D12_RASTERIZER_DESC rasterizer_desc = {};
+	rasterizer_desc.FillMode = D3D12_FILL_MODE_SOLID;
+	rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
+	rasterizer_desc.FrontCounterClockwise = false;
+
+	compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER, rasterizer_desc);
+
+	D3D12_PIPELINE_STATE_STREAM_DESC stream_desc = {};
+	stream_desc.pPipelineStateSubobjectStream = pipeline_stream.data();
+	stream_desc.SizeInBytes = pipeline_stream.size();
+
+	hr = device2->CreatePipelineState(&stream_desc, __uuidof(ID3D12PipelineState), (void **)&py_rasterizer->pipeline);
+
+	if (vs_view.buf)
+		PyBuffer_Release(&vs_view);
+	if (ps_view.buf)
+		PyBuffer_Release(&ps_view);
+	if (ms_view.buf)
+		PyBuffer_Release(&ms_view);
+
+	if (hr != S_OK)
+	{
+		Py_DECREF(py_rasterizer);
+		return d3d_generate_exception(PyExc_Exception, hr, "Unable to create Rasterizer Pipeline State");
+	}
+
+	return (PyObject *)py_rasterizer;
 }
 
 static PyMethodDef d3d12_Device_methods[] = {
@@ -1666,7 +2025,8 @@ static PyMethodDef d3d12_Device_methods[] = {
 	{"create_texture2d", (PyCFunction)d3d12_Device_create_texture2d, METH_VARARGS, "Creates a Texture2D object"},
 	{"create_texture3d", (PyCFunction)d3d12_Device_create_texture3d, METH_VARARGS, "Creates a Texture3D object"},
 	{"get_debug_messages", (PyCFunction)d3d12_Device_get_debug_messages, METH_VARARGS, "Get Device's debug messages"},
-	{"create_compute", (PyCFunction)d3d12_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute object"},
+	{"create_compute", (PyCFunction)d3d12_Device_create_compute, METH_VARARGS | METH_KEYWORDS, "Creates a Compute Pipeline object"},
+	{"create_rasterizer", (PyCFunction)d3d12_Device_create_rasterizer, METH_VARARGS | METH_KEYWORDS, "Creates a Rasterizer Pipeline object"},
 	{"create_swapchain", (PyCFunction)d3d12_Device_create_swapchain, METH_VARARGS, "Creates a Swapchain object"},
 	{"create_sampler", (PyCFunction)d3d12_Device_create_sampler, METH_VARARGS, "Creates a Sampler object"},
 	{"create_heap", (PyCFunction)d3d12_Device_create_heap, METH_VARARGS, "Creates a Heap object"},
@@ -2133,11 +2493,11 @@ static PyMethodDef d3d12_Resource_methods[] = {
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
-static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
+static PyObject *d3d12_Pipeline_dispatch(d3d12_Pipeline *self, PyObject *args)
 {
 	UINT x, y, z;
 	Py_buffer view;
-	if (!PyArg_ParseTuple(args, "IIIy*", &x, &y, &z, &view))
+	if (!PyArg_ParseTuple(args, "IIIy*:dispatch", &x, &y, &z, &view))
 		return NULL;
 
 	if (view.len > 0)
@@ -2198,12 +2558,12 @@ static PyObject *d3d12_Compute_dispatch(d3d12_Compute *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *args)
+static PyObject *d3d12_Pipeline_dispatch_indirect(d3d12_Pipeline *self, PyObject *args)
 {
 	PyObject *py_indirect_buffer;
 	UINT offset;
 	Py_buffer view;
-	if (!PyArg_ParseTuple(args, "OIy*", &py_indirect_buffer, &offset, &view))
+	if (!PyArg_ParseTuple(args, "OIy*:dispatch_indirect", &py_indirect_buffer, &offset, &view))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_indirect_buffer, (PyObject *)&d3d12_Resource_Type);
@@ -2270,7 +2630,104 @@ static PyObject *d3d12_Compute_dispatch_indirect(d3d12_Compute *self, PyObject *
 	Py_RETURN_NONE;
 }
 
-static PyObject *d3d12_Compute_bind_cbv(d3d12_Compute *self, PyObject *args)
+static PyObject *d3d12_Pipeline_draw(d3d12_Pipeline *self, PyObject *args)
+{
+	UINT num_vertices, num_instances, start_vertex, start_instance;
+	Py_buffer view;
+	if (!PyArg_ParseTuple(args, "IIIIy*:draw", &num_vertices, &num_instances, &start_vertex, &start_instance, &view))
+		return NULL;
+
+	if (view.len > 0)
+	{
+		if (view.len > (self->push_constant_values * 4) || (view.len % 4) != 0)
+		{
+			return PyErr_Format(PyExc_ValueError,
+								"Invalid push constant size: %u, expected max %u with 4 bytes alignment", view.len, (self->push_constant_values * 4));
+		}
+	}
+
+	self->py_device->command_allocator->Reset();
+	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
+
+	if (self->descriptor_heaps[0])
+	{
+		self->py_device->command_list->SetDescriptorHeaps(self->descriptor_heaps[1] ? 2 : 1, self->descriptor_heaps);
+	}
+	else if (self->descriptor_heaps[1])
+	{
+		self->py_device->command_list->SetDescriptorHeaps(1, &self->descriptor_heaps[1]);
+	}
+
+	self->py_device->command_list->SetGraphicsRootSignature(self->root_signature);
+
+	if (self->descriptor_heaps[0])
+	{
+		self->py_device->command_list->SetGraphicsRootDescriptorTable(0, self->descriptor_heaps[0]->GetGPUDescriptorHandleForHeapStart());
+	}
+
+	if (self->descriptor_heaps[1])
+	{
+		if (!self->descriptor_heaps[0])
+		{
+			self->py_device->command_list->SetGraphicsRootDescriptorTable(0, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+		}
+		else
+		{
+			self->py_device->command_list->SetGraphicsRootDescriptorTable(1, self->descriptor_heaps[1]->GetGPUDescriptorHandleForHeapStart());
+		}
+	}
+
+	if (view.len > 0)
+	{
+		self->py_device->command_list->SetGraphicsRoot32BitConstants(self->push_constant_slot, (UINT)(view.len / 4), view.buf, 0);
+	}
+
+	self->py_device->command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
+	D3D12_RESOURCE_BARRIER barrier = {};
+	if (self->dsv_descriptor_heap)
+	{
+		barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		barrier.Transition.pResource = ((d3d12_Resource *)self->py_dsv)->resource;
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+		self->py_device->command_list->ResourceBarrier(1, &barrier);
+		dsv_handle = self->dsv_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
+		self->py_device->command_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, nullptr);
+	}
+	self->py_device->command_list->OMSetRenderTargets(0, NULL, false, self->dsv_descriptor_heap ? &dsv_handle : NULL);
+
+	D3D12_VIEWPORT viewport = {};
+	viewport.Width = 1024;
+	viewport.Height = 1024;
+	viewport.MaxDepth = 1;
+	self->py_device->command_list->RSSetViewports(1, &viewport);
+
+	D3D12_RECT scissor = {};
+	scissor.right = 1024;
+	scissor.bottom = 1024;
+	self->py_device->command_list->RSSetScissorRects(1, &scissor);
+	self->py_device->command_list->DrawInstanced(num_vertices, num_instances, start_vertex, start_instance);
+	if (self->dsv_descriptor_heap)
+	{
+		barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+		barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+		self->py_device->command_list->ResourceBarrier(1, &barrier);
+	}
+	self->py_device->command_list->Close();
+
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList **)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *d3d12_Pipeline_bind_cbv(d3d12_Pipeline *self, PyObject *args)
 {
 	UINT index;
 	PyObject *py_resource;
@@ -2318,7 +2775,7 @@ static PyObject *d3d12_Compute_bind_cbv(d3d12_Compute *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-static PyObject *d3d12_Compute_bind_srv(d3d12_Compute *self, PyObject *args)
+static PyObject *d3d12_Pipeline_bind_srv(d3d12_Pipeline *self, PyObject *args)
 {
 	UINT index;
 	PyObject *py_resource;
@@ -2375,7 +2832,7 @@ static PyObject *d3d12_Compute_bind_srv(d3d12_Compute *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-static PyObject *d3d12_Compute_bind_uav(d3d12_Compute *self, PyObject *args)
+static PyObject *d3d12_Pipeline_bind_uav(d3d12_Pipeline *self, PyObject *args)
 {
 	UINT index;
 	PyObject *py_resource;
@@ -2431,12 +2888,13 @@ static PyObject *d3d12_Compute_bind_uav(d3d12_Compute *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-static PyMethodDef d3d12_Compute_methods[] = {
-	{"dispatch", (PyCFunction)d3d12_Compute_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
-	{"dispatch_indirect", (PyCFunction)d3d12_Compute_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline"},
-	{"bind_cbv", (PyCFunction)d3d12_Compute_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Compute Pipeline"},
-	{"bind_srv", (PyCFunction)d3d12_Compute_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Compute Pipeline"},
-	{"bind_uav", (PyCFunction)d3d12_Compute_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Compute Pipeline"},
+static PyMethodDef d3d12_Pipeline_methods[] = {
+	{"dispatch", (PyCFunction)d3d12_Pipeline_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
+	{"dispatch_indirect", (PyCFunction)d3d12_Pipeline_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline"},
+	{"draw", (PyCFunction)d3d12_Pipeline_draw, METH_VARARGS, "Execute a Rasterizer Pipeline"},
+	{"bind_cbv", (PyCFunction)d3d12_Pipeline_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Pipeline"},
+	{"bind_srv", (PyCFunction)d3d12_Pipeline_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Pipeline"},
+	{"bind_uav", (PyCFunction)d3d12_Pipeline_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Pipeline"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -2528,7 +2986,7 @@ PyInit_d3d12(void)
 		&d3d12_Device_Type, d3d12_Device_members, d3d12_Device_methods,
 		&d3d12_Resource_Type, d3d12_Resource_members, d3d12_Resource_methods,
 		&d3d12_Swapchain_Type, /*d3d12_Swapchain_members*/ NULL, d3d12_Swapchain_methods,
-		&d3d12_Compute_Type, NULL, d3d12_Compute_methods,
+		&d3d12_Pipeline_Type, NULL, d3d12_Pipeline_methods,
 		&d3d12_Sampler_Type, NULL, NULL,
 		&d3d12_Heap_Type, d3d12_Heap_members, NULL);
 
