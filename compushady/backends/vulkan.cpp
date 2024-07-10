@@ -96,6 +96,7 @@ typedef struct vulkan_Resource
     uint32_t tile_width;
     uint32_t tile_height;
     uint32_t tile_depth;
+    uint32_t mips;
 } vulkan_Resource;
 
 typedef struct vulkan_Compute
@@ -272,7 +273,7 @@ static uint32_t *vulkan_patch_spirv_unknown_uav(const uint32_t *words, uint64_t 
 }
 
 static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFormat format,
-                                   const uint32_t width, const uint32_t height, const uint32_t depth, const uint32_t slices, const bool sparse)
+                                   const uint32_t width, const uint32_t height, const uint32_t depth, const uint32_t slices, const bool sparse, const uint32_t mips)
 {
     VkImage image;
     VkImageCreateInfo image_create_info = {};
@@ -281,7 +282,7 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
     image_create_info.extent.height = height;
     image_create_info.extent.depth = depth;
     image_create_info.imageType = image_type;
-    image_create_info.mipLevels = 1;
+    image_create_info.mipLevels = mips;
     image_create_info.arrayLayers = slices;
     image_create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_create_info.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -292,9 +293,9 @@ static VkImage vulkan_create_image(VkDevice device, VkImageType image_type, VkFo
         image_create_info.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     }
     else
-	{
-		image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-	}
+    {
+        image_create_info.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    }
     image_create_info.format = format;
     if (sparse)
     {
@@ -1137,7 +1138,7 @@ static PyObject *vulkan_Device_create_buffer(vulkan_Device *self, PyObject *args
 }
 
 static bool vulkan_texture_set_layout(
-    vulkan_Device *py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout, const uint32_t slices)
+    vulkan_Device *py_device, VkImage image, VkImageLayout old_layout, VkImageLayout new_layout, const uint32_t slices, const uint32_t mips)
 {
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -1146,7 +1147,7 @@ static bool vulkan_texture_set_layout(
     image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     image_memory_barrier.image = image;
     image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    image_memory_barrier.subresourceRange.levelCount = 1;
+    image_memory_barrier.subresourceRange.levelCount = mips;
     image_memory_barrier.subresourceRange.layerCount = slices;
     image_memory_barrier.dstAccessMask = VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     image_memory_barrier.oldLayout = old_layout;
@@ -1182,7 +1183,10 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     uint64_t heap_offset;
     uint32_t slices;
     PyObject *py_sparse;
-    if (!PyArg_ParseTuple(args, "IIiOKIO", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse))
+    PyObject *py_cube;
+    uint32_t mips;
+
+    if (!PyArg_ParseTuple(args, "IIiOKIOOI", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse, &py_cube, &mips))
         return NULL;
 
     if (width == 0)
@@ -1198,6 +1202,11 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     if (slices == 0)
     {
         return PyErr_Format(PyExc_ValueError, "invalid number of slices");
+    }
+
+    if (mips == 0)
+    {
+        return PyErr_Format(PyExc_ValueError, "invalid number of mips");
     }
 
     if (vulkan_formats.find(format) == vulkan_formats.end())
@@ -1226,7 +1235,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     Py_INCREF(py_resource->py_device);
 
     py_resource->image = vulkan_create_image(
-        py_device->device, VK_IMAGE_TYPE_2D, vulkan_formats[format].first, width, height, 1, slices, sparse);
+        py_device->device, VK_IMAGE_TYPE_2D, vulkan_formats[format].first, width, height, 1, slices, sparse, mips);
     if (!py_resource->image)
     {
         Py_DECREF(py_resource);
@@ -1331,7 +1340,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     {
         image_view_create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
     }
-    image_view_create_info.subresourceRange.levelCount = 1;
+    image_view_create_info.subresourceRange.levelCount = mips;
     image_view_create_info.subresourceRange.layerCount = slices;
 
     VkResult result = vkCreateImageView(
@@ -1343,7 +1352,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     }
 
     if (!vulkan_texture_set_layout(
-            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, slices))
+            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, slices, mips))
     {
         Py_DECREF(py_resource);
         return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
@@ -1360,6 +1369,7 @@ static PyObject *vulkan_Device_create_texture2d(vulkan_Device *self, PyObject *a
     py_resource->format = image_view_create_info.format;
     py_resource->heap_size = requirements.size;
     py_resource->slices = slices;
+    py_resource->mips = mips;
     py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
 
     return (PyObject *)py_resource;
@@ -1418,7 +1428,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     Py_INCREF(py_resource->py_device);
 
     py_resource->image = vulkan_create_image(
-        py_device->device, VK_IMAGE_TYPE_3D, vulkan_formats[format].first, width, height, depth, 1, false);
+        py_device->device, VK_IMAGE_TYPE_3D, vulkan_formats[format].first, width, height, depth, 1, false, 1);
     if (!py_resource->image)
     {
         Py_DECREF(py_resource);
@@ -1535,7 +1545,7 @@ static PyObject *vulkan_Device_create_texture3d(vulkan_Device *self, PyObject *a
     }
 
     if (!vulkan_texture_set_layout(
-            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 1))
+            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 1, 1))
     {
         Py_DECREF(py_resource);
         return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
@@ -1604,7 +1614,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     Py_INCREF(py_resource->py_device);
 
     py_resource->image = vulkan_create_image(
-        py_device->device, VK_IMAGE_TYPE_1D, vulkan_formats[format].first, width, 1, 1, slices, false);
+        py_device->device, VK_IMAGE_TYPE_1D, vulkan_formats[format].first, width, 1, 1, slices, false, 1);
     if (!py_resource->image)
     {
         Py_DECREF(py_resource);
@@ -1720,7 +1730,7 @@ static PyObject *vulkan_Device_create_texture1d(vulkan_Device *self, PyObject *a
     }
 
     if (!vulkan_texture_set_layout(
-            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, slices))
+            py_device, py_resource->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, slices, 1))
     {
         Py_DECREF(py_resource);
         return PyErr_Format(PyExc_MemoryError, "unable to set vulkan Image layout");
@@ -1802,6 +1812,7 @@ static PyObject *vulkan_Device_create_sampler(vulkan_Device *self, PyObject *arg
     {
         return PyErr_Format(Compushady_SamplerError, "unsupported filter");
     }
+    sampler_create_info.maxLod = VK_LOD_CLAMP_NONE;
     sampler_create_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 
     vulkan_Device *py_device = vulkan_Device_get_device(self);
@@ -2589,7 +2600,7 @@ static PyObject *vulkan_Device_create_swapchain(vulkan_Device *self, PyObject *a
     for (VkImage image : py_swapchain->images)
     {
         if (!vulkan_texture_set_layout(
-                py_device, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 1))
+                py_device, image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, 1, 1))
         {
             Py_DECREF(py_swapchain);
             return PyErr_Format(PyExc_Exception, "Unable to update vulkan Swapchain images layout");
@@ -2716,6 +2727,7 @@ static PyMemberDef vulkan_Resource_members[] = {
      "resource depth"},
     {"row_pitch", T_ULONGLONG, offsetof(vulkan_Resource, row_pitch), 0, "resource row pitch"},
     {"slices", T_UINT, offsetof(vulkan_Resource, slices), 0, "resource number of slices"},
+    {"mips", T_UINT, offsetof(vulkan_Resource, mips), 0, "resource number of mips"},
     {"heap_size", T_ULONGLONG, offsetof(vulkan_Resource, heap_size), 0, "resource heap size"},
     {"heap_type", T_INT, offsetof(vulkan_Resource, heap_type), 0, "resource heap type"},
     {"tiles_x", T_UINT, offsetof(vulkan_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
@@ -2977,7 +2989,9 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     uint32_t dst_z;
     uint32_t src_slice;
     uint32_t dst_slice;
-    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice))
+    uint32_t src_mip;
+    uint32_t dst_mip;
+    if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice, &src_mip, &dst_mip))
         return NULL;
 
     int ret = PyObject_IsInstance(py_destination, (PyObject *)&vulkan_Resource_Type);
@@ -3002,7 +3016,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
                                   src_x, src_y, src_z, src_slice, self->slices, dst_slice, dst_resource->slices,
                                   self->image_extent.width, self->image_extent.height, self->image_extent.depth,
                                   dst_resource->image_extent.width, dst_resource->image_extent.height, dst_resource->image_extent.depth,
-                                  &dst_x, &dst_y, &dst_z, &width, &height, &depth))
+                                  &dst_x, &dst_y, &dst_z, &width, &height, &depth, src_mip, dst_mip, self->mips, dst_resource->mips))
     {
         return NULL;
     }
@@ -3026,6 +3040,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         image_memory_barrier.image = dst_resource->image;
         image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_memory_barrier.subresourceRange.baseMipLevel = dst_mip;
         image_memory_barrier.subresourceRange.levelCount = 1;
         image_memory_barrier.subresourceRange.baseArrayLayer = dst_slice;
         image_memory_barrier.subresourceRange.layerCount = 1;
@@ -3036,9 +3051,12 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
         VkBufferImageCopy buffer_image_copy = {};
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        buffer_image_copy.imageSubresource.mipLevel = dst_mip;
         buffer_image_copy.imageSubresource.baseArrayLayer = dst_slice;
         buffer_image_copy.imageSubresource.layerCount = 1;
-        buffer_image_copy.imageExtent = dst_resource->image_extent;
+        buffer_image_copy.imageExtent.width = dst_resource->image_extent.width >> dst_mip;
+        buffer_image_copy.imageExtent.height = dst_resource->image_extent.height >> dst_mip;
+        buffer_image_copy.imageExtent.depth = dst_resource->image_extent.depth;
         buffer_image_copy.bufferOffset = src_offset;
         vkCmdCopyBufferToImage(self->py_device->command_buffer, self->buffer, dst_resource->image,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &buffer_image_copy);
@@ -3053,6 +3071,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         image_memory_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         image_memory_barrier.image = self->image;
         image_memory_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_memory_barrier.subresourceRange.baseMipLevel = src_mip;
         image_memory_barrier.subresourceRange.levelCount = 1;
         image_memory_barrier.subresourceRange.baseArrayLayer = src_slice;
         image_memory_barrier.subresourceRange.layerCount = 1;
@@ -3063,9 +3082,12 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 1, &image_memory_barrier);
         VkBufferImageCopy buffer_image_copy = {};
         buffer_image_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        buffer_image_copy.imageSubresource.mipLevel = src_mip;
         buffer_image_copy.imageSubresource.baseArrayLayer = src_slice;
         buffer_image_copy.imageSubresource.layerCount = 1;
-        buffer_image_copy.imageExtent = self->image_extent;
+        buffer_image_copy.imageExtent.width = self->image_extent.width >> src_mip;
+        buffer_image_copy.imageExtent.height = self->image_extent.height >> src_mip;
+        buffer_image_copy.imageExtent.depth = self->image_extent.depth;
         buffer_image_copy.bufferOffset = dst_offset;
         vkCmdCopyImageToBuffer(self->py_device->command_buffer, self->image,
                                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_resource->buffer, 1, &buffer_image_copy);
@@ -3080,6 +3102,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         image_memory_barrier[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         image_memory_barrier[0].image = self->image;
         image_memory_barrier[0].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_memory_barrier[0].subresourceRange.baseMipLevel = src_mip;
         image_memory_barrier[0].subresourceRange.levelCount = 1;
         image_memory_barrier[0].subresourceRange.baseArrayLayer = src_slice;
         image_memory_barrier[0].subresourceRange.layerCount = 1;
@@ -3088,6 +3111,7 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
         image_memory_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         image_memory_barrier[1].image = dst_resource->image;
         image_memory_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_memory_barrier[1].subresourceRange.baseMipLevel = dst_mip;
         image_memory_barrier[1].subresourceRange.levelCount = 1;
         image_memory_barrier[1].subresourceRange.baseArrayLayer = dst_slice;
         image_memory_barrier[1].subresourceRange.layerCount = 1;
@@ -3097,12 +3121,14 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, 0, 0, 0, 2, image_memory_barrier);
         VkImageCopy image_copy = {};
         image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_copy.srcSubresource.mipLevel = src_mip;
         image_copy.srcSubresource.baseArrayLayer = src_slice;
         image_copy.srcSubresource.layerCount = 1;
         image_copy.srcOffset.x = src_x;
         image_copy.srcOffset.y = src_y;
         image_copy.srcOffset.z = src_z;
         image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        image_copy.dstSubresource.mipLevel = dst_mip;
         image_copy.dstSubresource.baseArrayLayer = dst_slice;
         image_copy.dstSubresource.layerCount = 1;
         image_copy.dstOffset.x = dst_x;
@@ -3140,6 +3166,26 @@ static PyObject *vulkan_Resource_copy_to(vulkan_Resource *self, PyObject *args)
     }
 
     return PyErr_Format(PyExc_Exception, "unable to submit to Queue");
+}
+
+static PyObject *vulkan_Resource_get_mip_row_pitch(vulkan_Resource *self, PyObject *args)
+{
+    uint32_t mip;
+    if (!PyArg_ParseTuple(args, "I:get_mip_row_pitch", &mip))
+        return NULL;
+
+    const uint32_t pixel_size = static_cast<uint32_t>(self->row_pitch / self->image_extent.width);
+    return PyLong_FromUnsignedLong((self->image_extent.width >> mip) * pixel_size);
+}
+
+static PyObject *vulkan_Resource_get_mip_size(vulkan_Resource *self, PyObject *args)
+{
+    uint32_t mip;
+    if (!PyArg_ParseTuple(args, "I:get_mip_size", &mip))
+        return NULL;
+
+    const uint32_t pixel_size = static_cast<uint32_t>(self->row_pitch / self->image_extent.width);
+    return PyLong_FromUnsignedLongLong((self->image_extent.width >> mip) * pixel_size * (self->image_extent.height >> mip) * self->image_extent.depth);
 }
 
 static PyObject *vulkan_Resource_bind_tile(vulkan_Resource *self, PyObject *args)
@@ -3278,6 +3324,8 @@ static PyMethodDef vulkan_Resource_methods[] = {
     {"copy_to", (PyCFunction)vulkan_Resource_copy_to, METH_VARARGS,
      "Copy resource content to another resource"},
     {"bind_tile", (PyCFunction)vulkan_Resource_bind_tile, METH_VARARGS, "Bind a sparse resource tile to a heap"},
+    {"get_mip_row_pitch", (PyCFunction)vulkan_Resource_get_mip_row_pitch, METH_VARARGS, "Get the row_pitch of the specified mip level"},
+    {"get_mip_size", (PyCFunction)vulkan_Resource_get_mip_size, METH_VARARGS, "Get the size of the specified mip level"},
     {NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -3286,7 +3334,9 @@ static PyObject *vulkan_Swapchain_present(vulkan_Swapchain *self, PyObject *args
     PyObject *py_resource;
     uint32_t x;
     uint32_t y;
-    if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
+    uint32_t slice;
+    uint32_t mip;
+    if (!PyArg_ParseTuple(args, "OIIII", &py_resource, &x, &y, &slice, &mip))
         return NULL;
 
     int ret = PyObject_IsInstance(py_resource, (PyObject *)&vulkan_Resource_Type);
@@ -3329,18 +3379,21 @@ static PyObject *vulkan_Swapchain_present(vulkan_Swapchain *self, PyObject *args
     image_memory_barrier[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
     image_memory_barrier[1].image = src_resource->image;
     image_memory_barrier[1].subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_memory_barrier[1].subresourceRange.baseMipLevel = mip;
     image_memory_barrier[1].subresourceRange.levelCount = 1;
+    image_memory_barrier[1].subresourceRange.baseArrayLayer = slice;
     image_memory_barrier[1].subresourceRange.layerCount = 1;
     image_memory_barrier[1].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_memory_barrier[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
     VkImageCopy image_copy = {};
     image_copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_copy.srcSubresource.mipLevel = mip;
     image_copy.srcSubresource.layerCount = 1;
     image_copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     image_copy.dstSubresource.layerCount = 1;
-    image_copy.extent.width = Py_MIN(src_resource->image_extent.width, self->image_extent.width - x);
-    image_copy.extent.height = Py_MIN(src_resource->image_extent.height, self->image_extent.height - y);
+    image_copy.extent.width = Py_MIN(src_resource->image_extent.width >> mip, self->image_extent.width - x);
+    image_copy.extent.height = Py_MIN(src_resource->image_extent.height >> mip, self->image_extent.height - y);
     image_copy.extent.depth = 1;
     image_copy.dstOffset.x = x;
     image_copy.dstOffset.y = y;

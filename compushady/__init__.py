@@ -117,6 +117,8 @@ class Resource:
         dst_z=0,
         src_slice=0,
         dst_slice=0,
+        src_mip=0,
+        dst_mip=0,
     ):
         self.handle.copy_to(
             destination.handle,
@@ -134,6 +136,8 @@ class Resource:
             dst_z,
             src_slice,
             dst_slice,
+            src_mip,
+            dst_mip,
         )
 
     @property
@@ -263,11 +267,15 @@ class Texture2D(Resource):
         heap=None,
         heap_offset=0,
         slices=1,
+        mips=1,
         sparse=False,
+        cube=False,
         device=None,
     ):
         self.device = device if device else get_current_device()
         self.heap = heap
+        if cube:
+            slices = 6
         self.handle = self.device.create_texture2d(
             width,
             height,
@@ -276,6 +284,8 @@ class Texture2D(Resource):
             heap_offset,
             slices,
             sparse,
+            cube,
+            mips,
         )
 
     @property
@@ -291,8 +301,18 @@ class Texture2D(Resource):
         return self.handle.slices
 
     @property
+    def mips(self):
+        return self.handle.mips
+
+    @property
     def row_pitch(self):
         return self.handle.row_pitch
+
+    def get_mip_row_pitch(self, mip):
+        return self.handle.get_mip_row_pitch(mip)
+
+    def get_mip_size(self, mip):
+        return self.handle.get_mip_size(mip)
 
 
 class Texture3D(Resource):
@@ -353,8 +373,8 @@ class Swapchain:
     def height(self):
         return self.handle.height
 
-    def present(self, resource, x=0, y=0):
-        self.handle.present(resource.handle, x, y)
+    def present(self, resource, x=0, y=0, slice=0, mip=0):
+        self.handle.present(resource.handle, x, y, slice, mip)
 
 
 class Sampler:
@@ -423,11 +443,11 @@ class Compute(Pipeline):
         )
 
     def dispatch(self, x, y, z, push=None):
-        self.handle.dispatch(x, y, z, push if push else b"")
+        self.handle.dispatch(x, y, z, push if push is not None else b"")
 
     def dispatch_indirect(self, indirect_buffer, offset=0, push=None):
         self.handle.dispatch_indirect(
-            indirect_buffer.handle, offset, push if push else b""
+            indirect_buffer.handle, offset, push if push is not None else b""
         )
 
 
@@ -443,6 +463,8 @@ class Rasterizer(Pipeline):
         srv=[],
         uav=[],
         samplers=[],
+        wireframe=False,
+        ccw=False,
         push_size=0,
         bindless=False,
         max_bindless=64,
@@ -459,6 +481,8 @@ class Rasterizer(Pipeline):
             srv=[resource.handle for resource in srv],
             uav=[resource.handle for resource in uav],
             samplers=[sampler.handle for sampler in samplers],
+            wireframe=wireframe,
+            ccw=ccw,
             push_size=push_size,
             bindless=max_bindless if bindless else 0,
         )
@@ -471,5 +495,8 @@ class Rasterizer(Pipeline):
             num_instances,
             start_vertex,
             start_instance,
-            push if push else b"",
+            push if push is not None else b"",
         )
+
+    def clear(self):
+        self.handle.clear()

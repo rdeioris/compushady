@@ -60,6 +60,8 @@ typedef struct d3d12_Resource
 	UINT tile_width;
 	UINT tile_height;
 	UINT tile_depth;
+	UINT mips;
+	bool cube;
 } d3d12_Resource;
 
 typedef struct d3d12_Swapchain
@@ -123,6 +125,7 @@ static PyMemberDef d3d12_Resource_members[] = {
 	{"depth", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.Depth), 0, "resource depth"},
 	{"row_pitch", T_UINT, offsetof(d3d12_Resource, footprint) + offsetof(D3D12_PLACED_SUBRESOURCE_FOOTPRINT, Footprint.RowPitch), 0, "resource row pitch"},
 	{"slices", T_UINT, offsetof(d3d12_Resource, slices), 0, "resource number of slices"},
+	{"mips", T_UINT, offsetof(d3d12_Resource, mips), 0, "resource number of mips"},
 	{"heap_size", T_ULONGLONG, offsetof(d3d12_Resource, heap_size), 0, "resource heap size"},
 	{"heap_type", T_INT, offsetof(d3d12_Resource, heap_type), 0, "resource heap type"},
 	{"tiles_x", T_UINT, offsetof(d3d12_Resource, tiles_x), 0, "sparsed resource number of tiles on x axis"},
@@ -346,7 +349,9 @@ static PyObject *d3d12_Swapchain_present(d3d12_Swapchain *self, PyObject *args)
 	PyObject *py_resource;
 	uint32_t x;
 	uint32_t y;
-	if (!PyArg_ParseTuple(args, "OII", &py_resource, &x, &y))
+	uint32_t slice;
+	uint32_t mip;
+	if (!PyArg_ParseTuple(args, "OIIII", &py_resource, &x, &y, &slice, &mip))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_resource, (PyObject *)&d3d12_Resource_Type);
@@ -381,6 +386,7 @@ static PyObject *d3d12_Swapchain_present(d3d12_Swapchain *self, PyObject *args)
 	barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
 	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barriers[1].Transition.pResource = src_resource->resource;
+	barriers[1].Transition.Subresource = slice * src_resource->mips + mip;
 	barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 	barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
 
@@ -392,12 +398,14 @@ static PyObject *d3d12_Swapchain_present(d3d12_Swapchain *self, PyObject *args)
 
 	D3D12_TEXTURE_COPY_LOCATION src_location = {};
 	src_location.pResource = ((d3d12_Resource *)py_resource)->resource;
+	src_location.SubresourceIndex = slice * src_resource->mips + mip;
 	src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
 
 	D3D12_BOX box = {};
-	box.right = Py_MIN(((d3d12_Resource *)py_resource)->footprint.Footprint.Width, self->desc.Width - x);
-	box.bottom = Py_MIN(((d3d12_Resource *)py_resource)->footprint.Footprint.Height, self->desc.Height - y);
+	box.right = Py_MIN(src_resource->footprint.Footprint.Width >> mip, self->desc.Width - x);
+	box.bottom = Py_MIN(src_resource->footprint.Footprint.Height >> mip, self->desc.Height - y);
 	box.back = 1;
+
 	self->py_device->command_list->CopyTextureRegion(&dest_location, x, y, 0, &src_location, &box);
 
 	barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
@@ -953,15 +961,15 @@ static PyObject *d3d12_Device_create_sampler(d3d12_Device *self, PyObject *args)
 	}
 	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_POINT)
 	{
-		filter = D3D12_FILTER_MIN_LINEAR_MAG_MIP_POINT;
+		filter = D3D12_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR;
 	}
 	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_POINT && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
 	{
-		filter = D3D12_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT;
+		filter = D3D12_FILTER_MIN_POINT_MAG_MIP_LINEAR;
 	}
 	else if (filter_min == COMPUSHADY_SAMPLER_FILTER_LINEAR && filter_mag == COMPUSHADY_SAMPLER_FILTER_LINEAR)
 	{
-		filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+		filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
 	}
 	else
 	{
@@ -985,6 +993,7 @@ static PyObject *d3d12_Device_create_sampler(d3d12_Device *self, PyObject *args)
 	py_sampler->sampler_desc.AddressV = (D3D12_TEXTURE_ADDRESS_MODE)address_mode_v;
 	py_sampler->sampler_desc.AddressW = (D3D12_TEXTURE_ADDRESS_MODE)address_mode_w;
 	py_sampler->sampler_desc.Filter = filter;
+	py_sampler->sampler_desc.MaxLOD = 1000.0;
 
 	return (PyObject *)py_sampler;
 }
@@ -998,7 +1007,9 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	SIZE_T heap_offset;
 	UINT slices;
 	PyObject *py_sparse;
-	if (!PyArg_ParseTuple(args, "IIiOKIO", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse))
+	PyObject *py_cube;
+	UINT mips;
+	if (!PyArg_ParseTuple(args, "IIiOKIOOI", &width, &height, &format, &py_heap, &heap_offset, &slices, &py_sparse, &py_cube, &mips))
 		return NULL;
 
 	if (width == 0)
@@ -1014,6 +1025,11 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	if (slices == 0)
 	{
 		return PyErr_Format(PyExc_ValueError, "invalid number of slices");
+	}
+
+	if (mips == 0)
+	{
+		return PyErr_Format(PyExc_ValueError, "invalid number of mips");
 	}
 
 	if (dxgi_pixels_sizes.find(format) == dxgi_pixels_sizes.end())
@@ -1039,7 +1055,7 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	resource_desc.Width = width;
 	resource_desc.Height = height;
 	resource_desc.DepthOrArraySize = slices;
-	resource_desc.MipLevels = 1;
+	resource_desc.MipLevels = mips;
 	resource_desc.Format = format;
 	resource_desc.Layout = sparse ? D3D12_TEXTURE_LAYOUT_64KB_UNDEFINED_SWIZZLE : D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	resource_desc.SampleDesc.Count = 1;
@@ -1145,8 +1161,10 @@ static PyObject *d3d12_Device_create_texture2d(d3d12_Device *self, PyObject *arg
 	py_resource->stride = 0;
 	py_resource->format = format;
 	py_resource->slices = slices;
+	py_resource->mips = mips;
 	py_resource->heap_size = allocation_info.SizeInBytes;
 	py_resource->heap_type = COMPUSHADY_HEAP_DEFAULT;
+	py_resource->cube = (py_cube && PyObject_IsTrue(py_cube)) ? true : false;
 
 	if (sparse)
 	{
@@ -1588,6 +1606,15 @@ static d3d12_Pipeline *compushady_d3d12_setup_pipeline(d3d12_Device *self, PyObj
 				}
 				py_device->device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
 			}
+			else if (resource->cube)
+			{
+				D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+				srv_desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+				srv_desc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+				srv_desc.Format = resource->format;
+				srv_desc.TextureCube.MipLevels = 1;
+				py_device->device->CreateShaderResourceView(resource->resource, &srv_desc, cpu_handle);
+			}
 			else if ((resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE1D || resource->dimension == D3D12_RESOURCE_DIMENSION_TEXTURE2D) && (resource->format == D32_FLOAT || resource->format == D24_UNORM_S8_UINT || resource->format == D16_UNORM))
 			{
 				D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
@@ -1831,7 +1858,7 @@ void compushady_d3d12_append_subobject_to_stream(std::vector<char> &stream, cons
 
 static PyObject *d3d12_Device_create_rasterizer(d3d12_Device *self, PyObject *args, PyObject *kwds)
 {
-	const char *kwlist[] = {"vs", "ps", "ms", "rtv", "dsv", "cbv", "srv", "uav", "samplers", "push_size", "bindless", NULL};
+	const char *kwlist[] = {"vs", "ps", "ms", "rtv", "dsv", "cbv", "srv", "uav", "samplers", "wireframe", "ccw", "push_size", "bindless", NULL};
 	Py_buffer vs_view;
 	Py_buffer ps_view;
 	Py_buffer ms_view;
@@ -1841,11 +1868,13 @@ static PyObject *d3d12_Device_create_rasterizer(d3d12_Device *self, PyObject *ar
 	PyObject *py_rtv = NULL;
 	PyObject *py_dsv = NULL;
 	PyObject *py_samplers = NULL;
+	PyObject *py_wireframe = NULL;
+	PyObject *py_ccw = NULL;
 	UINT push_size = 0;
 	UINT bindless = 0;
 
-	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*y*y*OOOOOOII:create_rasterizer", (char **)kwlist,
-									 &vs_view, &ps_view, &ms_view, &py_rtv, &py_dsv, &py_cbv, &py_srv, &py_uav, &py_samplers, &push_size, &bindless))
+	if (!PyArg_ParseTupleAndKeywords(args, kwds, "y*y*y*OOOOOOOOII:create_rasterizer", (char **)kwlist,
+									 &vs_view, &ps_view, &ms_view, &py_rtv, &py_dsv, &py_cbv, &py_srv, &py_uav, &py_samplers, &py_wireframe, &py_ccw, &push_size, &bindless))
 		return NULL;
 
 	d3d12_Pipeline *py_rasterizer = compushady_d3d12_setup_pipeline(self, py_cbv, py_srv, py_uav, py_samplers, push_size, bindless);
@@ -2098,9 +2127,9 @@ static PyObject *d3d12_Device_create_rasterizer(d3d12_Device *self, PyObject *ar
 	}
 
 	D3D12_RASTERIZER_DESC rasterizer_desc = {};
-	rasterizer_desc.FillMode = D3D12_FILL_MODE_SOLID;
+	rasterizer_desc.FillMode = (py_wireframe && PyObject_IsTrue(py_wireframe)) ? D3D12_FILL_MODE_WIREFRAME : D3D12_FILL_MODE_SOLID;
 	rasterizer_desc.CullMode = D3D12_CULL_MODE_BACK;
-	rasterizer_desc.FrontCounterClockwise = false;
+	rasterizer_desc.FrontCounterClockwise = (py_ccw && PyObject_IsTrue(py_ccw)) ? true : false;
 
 	compushady_d3d12_append_subobject_to_stream(pipeline_stream, D3D12_PIPELINE_STATE_SUBOBJECT_TYPE_RASTERIZER, rasterizer_desc);
 
@@ -2249,6 +2278,32 @@ static PyObject *d3d12_Resource_upload_chunked(d3d12_Resource *self, PyObject *a
 	Py_RETURN_NONE;
 }
 
+static PyObject *d3d12_Resource_get_mip_row_pitch(d3d12_Resource *self, PyObject *args)
+{
+	UINT mip;
+	if (!PyArg_ParseTuple(args, "I:get_mip_row_pitch", &mip))
+		return NULL;
+
+	D3D12_RESOURCE_DESC desc = self->resource->GetDesc();
+	D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
+	self->py_device->device->GetCopyableFootprints(&desc, mip, 1, 0, &footprint, NULL, NULL, NULL);
+
+	return PyLong_FromUnsignedLong(footprint.Footprint.RowPitch);
+}
+
+static PyObject *d3d12_Resource_get_mip_size(d3d12_Resource *self, PyObject *args)
+{
+	UINT mip;
+	if (!PyArg_ParseTuple(args, "I:get_mip_size", &mip))
+		return NULL;
+
+	D3D12_RESOURCE_DESC desc = self->resource->GetDesc();
+	UINT64 texture_size = 0;
+	self->py_device->device->GetCopyableFootprints(&desc, mip, 1, 0, NULL, NULL, NULL, &texture_size);
+
+	return PyLong_FromUnsignedLongLong(texture_size);
+}
+
 static PyObject *d3d12_Resource_readback(d3d12_Resource *self, PyObject *args)
 {
 	SIZE_T size;
@@ -2361,7 +2416,9 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	UINT dst_z;
 	UINT src_slice;
 	UINT dst_slice;
-	if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice))
+	UINT src_mip;
+	UINT dst_mip;
+	if (!PyArg_ParseTuple(args, "OKKKIIIIIIIIIIIII", &py_destination, &size, &src_offset, &dst_offset, &width, &height, &depth, &src_x, &src_y, &src_z, &dst_x, &dst_y, &dst_z, &src_slice, &dst_slice, &src_mip, &dst_mip))
 		return NULL;
 
 	int ret = PyObject_IsInstance(py_destination, (PyObject *)&d3d12_Resource_Type);
@@ -2381,13 +2438,13 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		size = self->size;
 	}
 
-	bool texture_to_texture_copy = (self->dimension != D3D12_RESOURCE_DIMENSION_BUFFER) && (dst_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER);
+	bool to_texture_copy = dst_resource->dimension != D3D12_RESOURCE_DIMENSION_BUFFER;
 	if (!compushady_check_copy_to(self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER,
 								  dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER, size, src_offset, dst_offset, self->size, dst_resource->size,
 								  src_x, src_y, src_z, src_slice, self->slices, dst_slice, dst_resource->slices,
 								  self->footprint.Footprint.Width, self->footprint.Footprint.Height, self->footprint.Footprint.Depth,
 								  dst_resource->footprint.Footprint.Width, dst_resource->footprint.Footprint.Height, dst_resource->footprint.Footprint.Depth,
-								  &dst_x, &dst_y, &dst_z, &width, &height, &depth))
+								  &dst_x, &dst_y, &dst_z, &width, &height, &depth, src_mip, dst_mip, self->mips, dst_resource->mips))
 	{
 		return NULL;
 	}
@@ -2395,8 +2452,10 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 	D3D12_RESOURCE_BARRIER barriers[2] = {};
 	barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barriers[0].Transition.pResource = self->resource;
+	barriers[0].Transition.Subresource = src_slice * self->mips + src_mip;
 	barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
 	barriers[1].Transition.pResource = dst_resource->resource;
+	barriers[1].Transition.Subresource = dst_slice * dst_resource->mips + dst_mip;
 
 	bool reset_barrier0 = false;
 	bool reset_barrier1 = false;
@@ -2429,17 +2488,18 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		if (dst_resource->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 		{
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-			dest_location.PlacedFootprint = self->footprint;
+			D3D12_RESOURCE_DESC desc = self->resource->GetDesc();
+			self->py_device->device->GetCopyableFootprints(&desc, src_mip, 1, 0, &dest_location.PlacedFootprint, NULL, NULL, NULL);
 			dest_location.PlacedFootprint.Offset = dst_offset;
 		}
 		else
 		{
 			barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
-			barriers[1].Transition.Subresource = dst_slice;
+			barriers[1].Transition.Subresource = dst_slice * dst_resource->mips + dst_mip;
 			self->py_device->command_list->ResourceBarrier(1, &barriers[1]);
 			dest_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			dest_location.SubresourceIndex = dst_slice;
+			dest_location.SubresourceIndex = dst_slice * dst_resource->mips + dst_mip;
 			reset_barrier1 = true;
 		}
 
@@ -2448,17 +2508,18 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		if (self->dimension == D3D12_RESOURCE_DIMENSION_BUFFER)
 		{
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-			src_location.PlacedFootprint = dst_resource->footprint;
+			D3D12_RESOURCE_DESC desc = dst_resource->resource->GetDesc();
+			dst_resource->py_device->device->GetCopyableFootprints(&desc, dst_mip, 1, 0, &src_location.PlacedFootprint, NULL, NULL, NULL);
 			src_location.PlacedFootprint.Offset = src_offset;
 		}
 		else
 		{
 			barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
 			barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-			barriers[0].Transition.Subresource = src_slice;
+			barriers[0].Transition.Subresource = src_slice * self->mips + src_mip;
 			self->py_device->command_list->ResourceBarrier(1, &barriers[0]);
 			src_location.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-			src_location.SubresourceIndex = src_slice;
+			src_location.SubresourceIndex = src_slice * self->mips + src_mip;
 			reset_barrier0 = true;
 		}
 
@@ -2469,7 +2530,7 @@ static PyObject *d3d12_Resource_copy_to(d3d12_Resource *self, PyObject *args)
 		box.bottom = src_y + height;
 		box.front = src_z;
 		box.back = src_z + depth;
-		self->py_device->command_list->CopyTextureRegion(&dest_location, dst_x, dst_y, dst_z, &src_location, texture_to_texture_copy ? &box : NULL);
+		self->py_device->command_list->CopyTextureRegion(&dest_location, dst_x, dst_y, dst_z, &src_location, to_texture_copy ? &box : NULL);
 	}
 
 	if (reset_barrier0)
@@ -2597,6 +2658,8 @@ static PyMethodDef d3d12_Resource_methods[] = {
 	{"readback2d", (PyCFunction)d3d12_Resource_readback2d, METH_VARARGS, "Readback bytes from a GPU Resource given pitch, width, height and pixel size"},
 	{"copy_to", (PyCFunction)d3d12_Resource_copy_to, METH_VARARGS, "Copy resource content to another resource"},
 	{"bind_tile", (PyCFunction)d3d12_Resource_bind_tile, METH_VARARGS, "Bind a sparse resource tile to a heap"},
+	{"get_mip_row_pitch", (PyCFunction)d3d12_Resource_get_mip_row_pitch, METH_VARARGS, "Get the row_pitch of the specified mip level"},
+	{"get_mip_size", (PyCFunction)d3d12_Resource_get_mip_size, METH_VARARGS, "Get the size of the specified mip level"},
 	{NULL, NULL, 0, NULL} /* Sentinel */
 };
 
@@ -2804,7 +2867,6 @@ static PyObject *d3d12_Pipeline_draw(d3d12_Pipeline *self, PyObject *args)
 		dsv_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
 		self->py_device->command_list->ResourceBarrier(1, &dsv_barrier);
 		dsv_handle = self->dsv_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
-		self->py_device->command_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, nullptr);
 
 		viewport_width = ((d3d12_Resource *)self->py_dsv)->footprint.Footprint.Width;
 		viewport_height = ((d3d12_Resource *)self->py_dsv)->footprint.Footprint.Height;
@@ -2823,8 +2885,6 @@ static PyObject *d3d12_Pipeline_draw(d3d12_Pipeline *self, PyObject *args)
 		self->py_device->command_list->ResourceBarrier(self->num_rtv, rtv_barrier);
 		for (UINT i = 0; i < self->num_rtv; i++)
 		{
-			const FLOAT rgba[4] = {0, 0, 0, 0};
-			self->py_device->command_list->ClearRenderTargetView(self->rtv_descriptors[i], rgba, 0, NULL);
 			rtv_barrier[i].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
 			rtv_barrier[i].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
 
@@ -2846,6 +2906,68 @@ static PyObject *d3d12_Pipeline_draw(d3d12_Pipeline *self, PyObject *args)
 	scissor.bottom = viewport_height;
 	self->py_device->command_list->RSSetScissorRects(1, &scissor);
 	self->py_device->command_list->DrawInstanced(num_vertices, num_instances, start_vertex, start_instance);
+
+	if (self->dsv_descriptor_heap)
+	{
+		dsv_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+		dsv_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+		self->py_device->command_list->ResourceBarrier(1, &dsv_barrier);
+	}
+
+	if (self->rtv_descriptor_heap)
+	{
+		self->py_device->command_list->ResourceBarrier(self->num_rtv, rtv_barrier);
+	}
+
+	self->py_device->command_list->Close();
+
+	self->py_device->queue->ExecuteCommandLists(1, (ID3D12CommandList **)&self->py_device->command_list);
+	self->py_device->queue->Signal(self->py_device->fence, ++self->py_device->fence_value);
+	self->py_device->fence->SetEventOnCompletion(self->py_device->fence_value, self->py_device->fence_event);
+	Py_BEGIN_ALLOW_THREADS;
+	WaitForSingleObject(self->py_device->fence_event, INFINITE);
+	Py_END_ALLOW_THREADS;
+
+	Py_RETURN_NONE;
+}
+
+static PyObject *d3d12_Pipeline_clear(d3d12_Pipeline *self, PyObject *args)
+{
+	self->py_device->command_allocator->Reset();
+	self->py_device->command_list->Reset(self->py_device->command_allocator, self->pipeline);
+
+	D3D12_CPU_DESCRIPTOR_HANDLE dsv_handle = {};
+	D3D12_RESOURCE_BARRIER dsv_barrier = {};
+	if (self->dsv_descriptor_heap)
+	{
+		dsv_barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+		dsv_barrier.Transition.pResource = ((d3d12_Resource *)self->py_dsv)->resource;
+		dsv_barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+		dsv_barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_DEPTH_WRITE;
+		self->py_device->command_list->ResourceBarrier(1, &dsv_barrier);
+		dsv_handle = self->dsv_descriptor_heap->GetCPUDescriptorHandleForHeapStart();
+		self->py_device->command_list->ClearDepthStencilView(dsv_handle, D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, nullptr);
+	}
+
+	D3D12_RESOURCE_BARRIER rtv_barrier[D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT] = {};
+	if (self->rtv_descriptor_heap)
+	{
+		for (UINT i = 0; i < self->num_rtv; i++)
+		{
+			rtv_barrier[i].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+			rtv_barrier[i].Transition.pResource = self->rtv_resources[i]->resource;
+			rtv_barrier[i].Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+			rtv_barrier[i].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+		}
+		self->py_device->command_list->ResourceBarrier(self->num_rtv, rtv_barrier);
+		for (UINT i = 0; i < self->num_rtv; i++)
+		{
+			const FLOAT rgba[4] = {0, 0, 0, 0};
+			self->py_device->command_list->ClearRenderTargetView(self->rtv_descriptors[i], rgba, 0, NULL);
+			rtv_barrier[i].Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+			rtv_barrier[i].Transition.StateAfter = D3D12_RESOURCE_STATE_COMMON;
+		}
+	}
 
 	if (self->dsv_descriptor_heap)
 	{
@@ -3035,7 +3157,8 @@ static PyObject *d3d12_Pipeline_bind_uav(d3d12_Pipeline *self, PyObject *args)
 static PyMethodDef d3d12_Pipeline_methods[] = {
 	{"dispatch", (PyCFunction)d3d12_Pipeline_dispatch, METH_VARARGS, "Execute a Compute Pipeline"},
 	{"dispatch_indirect", (PyCFunction)d3d12_Pipeline_dispatch_indirect, METH_VARARGS, "Execute an Indirect Compute Pipeline"},
-	{"draw", (PyCFunction)d3d12_Pipeline_draw, METH_VARARGS, "Execute a Rasterizer Pipeline"},
+	{"draw", (PyCFunction)d3d12_Pipeline_draw, METH_VARARGS, "Draw with a Rasterizer Pipeline"},
+	{"clear", (PyCFunction)d3d12_Pipeline_clear, METH_VARARGS, "Clear with a Rasterizer Pipeline"},
 	{"bind_cbv", (PyCFunction)d3d12_Pipeline_bind_cbv, METH_VARARGS, "Bind a CBV to a Bindless Pipeline"},
 	{"bind_srv", (PyCFunction)d3d12_Pipeline_bind_srv, METH_VARARGS, "Bind an SRV to a Bindless Pipeline"},
 	{"bind_uav", (PyCFunction)d3d12_Pipeline_bind_uav, METH_VARARGS, "Bind an UAV to a Bindless Pipeline"},
