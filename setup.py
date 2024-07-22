@@ -105,6 +105,7 @@ if is_windows:
         "backends/dxcompiler.dll",
         "backends/dxil.dll",
         "backends/compushady_naga.dll",
+        "backends/compushady_khr.dll",
     ]
 elif platform.system() == "Linux":
     if platform.machine() == "armv7l":

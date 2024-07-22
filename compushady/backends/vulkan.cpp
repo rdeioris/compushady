@@ -174,6 +174,108 @@ static const char *vulkan_get_spirv_entry_point(const uint32_t *words, uint64_t 
     return NULL;
 }
 
+static void vulkan_patch_spirv_bindings(uint32_t *words, uint64_t len, size_t *cbv_num, size_t *srv_num, size_t *uav_num, size_t *samplers_num)
+{
+    if (len < 20) // strip SPIR-V header
+        return;
+    if (len % 4) // SPIR-V is a stream of 32bits words
+        return;
+    if (words[0] != 0x07230203) // SPIR-V magic
+        return;
+
+    uint64_t offset = 5; // (20 / 4 of SPIR-V header)
+    const uint64_t words_num = len / 4;
+
+    // track every relevant binding for reordering it
+    std::vector<std::pair<uint32_t, uint64_t>> cbv_offsets;
+    std::vector<std::pair<uint32_t, uint64_t>> srv_offsets;
+    std::vector<std::pair<uint32_t, uint64_t>> uav_offsets;
+    std::vector<std::pair<uint32_t, uint64_t>> samplers_offsets;
+
+    while (offset < words_num)
+    {
+        const uint32_t word = words[offset];
+        const uint16_t opcode = word & 0xFFFF;
+        const uint16_t size = word >> 16;
+        if (size == 0) // avoid loop!
+            return;
+        if (opcode == 71 && (offset + size < words_num)) // OpDecorate(71) + id + Binding(33) + binding
+        {
+            if (size > 3)
+            {
+                if (words[offset + 2] == 33)
+                {
+                    // CBV
+                    if (words[offset + 3] < 1024)
+                    {
+                        cbv_offsets.push_back({words[offset + 3], offset + 3});
+                    }
+                    // SRV
+                    else if (words[offset + 3] < 2048)
+                    {
+                        srv_offsets.push_back({words[offset + 3], offset + 3});
+                    }
+                    // UAV
+                    else if (words[offset + 3] < 3072)
+                    {
+                        uav_offsets.push_back({words[offset + 3], offset + 3});
+                    }
+                    // Samplers
+                    else
+                    {
+                        samplers_offsets.push_back({words[offset + 3], offset + 3});
+                    }
+                }
+            }
+        }
+        offset += size;
+    }
+
+    std::sort(cbv_offsets.begin(), cbv_offsets.end(), [](auto &left, auto &right)
+              { return left.first < right.first; });
+
+    for (size_t i = 0; i < cbv_offsets.size(); i++)
+    {
+        auto pair = cbv_offsets[i];
+        words[pair.second] = static_cast<uint32_t>(i);
+    }
+
+    *cbv_num = cbv_offsets.size();
+
+    std::sort(srv_offsets.begin(), srv_offsets.end(), [](auto &left, auto &right)
+              { return left.first < right.first; });
+
+    for (size_t i = 0; i < srv_offsets.size(); i++)
+    {
+        auto pair = srv_offsets[i];
+        words[pair.second] = static_cast<uint32_t>(1024 + i);
+    }
+
+    *srv_num = srv_offsets.size();
+
+    std::sort(uav_offsets.begin(), uav_offsets.end(), [](auto &left, auto &right)
+              { return left.first < right.first; });
+
+    for (size_t i = 0; i < uav_offsets.size(); i++)
+    {
+        auto pair = uav_offsets[i];
+        words[pair.second] = static_cast<uint32_t>(2048 + i);
+    }
+
+    *uav_num = uav_offsets.size();
+
+    std::sort(samplers_offsets.begin(), samplers_offsets.end(), [](auto &left, auto &right)
+              { return left.first < right.first; });
+
+    for (size_t i = 0; i < samplers_offsets.size(); i++)
+    {
+        auto pair = samplers_offsets[i];
+        words[pair.second] = static_cast<uint32_t>(3072 + i);
+    }
+
+    *samplers_num = samplers_offsets.size();
+}
+
 /*
  * This issue has been discovered by the old Marco Beri:
  * when mapping a descriptor to an image with a vulkan unsupported layout
@@ -1908,6 +2010,12 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
     VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_create_info = {};
 #endif
 
+    size_t cbv_num = 0;
+    size_t srv_num = 0;
+    size_t uav_num = 0;
+    size_t samplers_num = 0;
+    vulkan_patch_spirv_bindings((uint32_t *)view.buf, view.len, &cbv_num, &srv_num, &uav_num, &samplers_num);
+
     VkShaderModuleCreateInfo shader_create_info = {};
     shader_create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     shader_create_info.codeSize = view.len;
@@ -1917,6 +2025,24 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     if (bindless == 0)
     {
+        if (cbv.size() != cbv_num)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of CBVs (%u) for Compute Pipeline (expected %u)", (uint32_t)cbv.size(), cbv_num);
+        }
+
+        if (srv.size() != srv_num)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of SRVs (%u) for Compute Pipeline (expected %u)", (uint32_t)srv.size(), srv_num);
+        }
+
+        if (uav.size() != uav_num)
+        {
+            PyBuffer_Release(&view);
+            return PyErr_Format(PyExc_ValueError, "Invalid number of UAVs (%u) for Compute Pipeline (expected %u)", (uint32_t)uav.size(), uav_num);
+        }
+
         for (vulkan_Resource *py_resource : cbv)
         {
             if (descriptors.find(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) == descriptors.end())
@@ -2062,6 +2188,12 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
         }
 #endif
 #endif
+    }
+
+    if (samplers.size() != samplers_num)
+    {
+        PyBuffer_Release(&view);
+        return PyErr_Format(PyExc_ValueError, "Invalid number of Samplers (%u) for Compute Pipeline (expected %u)", (uint32_t)samplers.size(), samplers_num);
     }
 
     binding_offset = 0;
@@ -2352,6 +2484,7 @@ static PyObject *vulkan_Device_create_compute(vulkan_Device *self, PyObject *arg
 
     result = vkCreateComputePipelines(py_device->device, VK_NULL_HANDLE, 1, &pipeline_create_info,
                                       nullptr, &py_compute->pipeline);
+
     if (result != VK_SUCCESS)
     {
         Py_DECREF(py_compute);
@@ -3480,10 +3613,12 @@ static PyObject *vulkan_Compute_dispatch(vulkan_Compute *self, PyObject *args)
         self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, self->pipeline);
     vkCmdBindDescriptorSets(self->py_device->command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
                             self->pipeline_layout, 0, 1, &self->descriptor_set, 0, nullptr);
+
     if (view.len > 0)
     {
         vkCmdPushConstants(self->py_device->command_buffer, self->pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, (uint32_t)view.len, view.buf);
     }
+
     vkCmdDispatch(self->py_device->command_buffer, x, y, z);
     vkEndCommandBuffer(self->py_device->command_buffer);
 
