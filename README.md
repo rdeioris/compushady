@@ -26,7 +26,7 @@ pip install compushady
 ```
 
 `Note for Linux`:
-(if you are building from sources, be sure vulkan and x11 headers are installed, ```libvulkan-dev``` and ```libx11-dev``` on a debian based distribution)
+(if you are building from sources, be sure vulkan and x11 headers are installed, ```libvulkan-dev``` and ```libx11-dev``` on a debian based distribution, or `vulkan-headers` on an arch based distribution)
 
 `Note for Mac`:
 (the vulkan headers will be searched in /usr/local or by reading the VULKAN_SDK environment variable, otherwise only the metal backend will be built)
